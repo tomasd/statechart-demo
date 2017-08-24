@@ -10,13 +10,45 @@
 (defn set-page [db page]
   (assoc db :page page))
 (declare dispatch)
-(defn state-tab [label state cmd]
-  (let [active? (reaction (contains? @(re-frame/subscribe [:configuration]) state))]
-    (fn [label state cmd]
+(defn state-tab [label active-tab state cmd]
+  (let [active? (reaction (= @active-tab state))]
+    (fn [label active-tab state cmd]
       [:li [:a {:href     "#"
                 :on-click (fn [e]
                             (dispatch cmd))}
             (str (if @active? "* " "") label)]])))
+
+(defn assoc-db-value [path value]
+  (fn [ctx]
+    (sc/update-db ctx assoc-in path value)))
+
+(re-frame/reg-sub :home-active-tab
+                  (fn [db _]
+                    (get-in db [:home-page :active-tab])))
+
+(re-frame/reg-sub :home-page-data
+                  (fn [db _]
+                    (get-in db [:home-page :data] [])))
+
+(defn home-page []
+  (let [active-tab (re-frame/subscribe [:home-active-tab])
+        rows       (re-frame/subscribe [:home-page-data])]
+    (fn []
+      [:div "home"
+       [:ul
+        [state-tab "Top 5" active-tab :top-5 [:set-tab :top-5]]
+        [state-tab "10 Naj" active-tab :10-naj [:set-tab :10-naj]]
+        [state-tab "Superkurzy" active-tab :superkurzy [:set-tab :superkurzy]]
+        [state-tab "Top ponuka" active-tab :top-ponuka [:set-tab :top-ponuka]]]
+
+       [:table
+        [:thead
+         [:tr
+          [:th "Box"]]]
+        [:tbody
+         (for [row @rows]
+           [:tr {:key row}
+            [:td row]])]]])))
 
 (def sm (let [filter-offer {:id     :filter-offer
                             :type   :and
@@ -180,25 +212,51 @@
                                    (fn [ctx]
                                      (sc/update-db ctx set-page {:name   :page/home
                                                                  :layout {:layout/top  [:div "top"]
-                                                                          :layout/main [:div "home"
-                                                                                        [:ul
-                                                                                         [state-tab "Top 5" [:page :home :filter :top-5] [:set-tab :top5]]
-                                                                                         [state-tab "10 Naj" [:page :home :filter :10-naj] [:set-tab :10-naj]]
-                                                                                         [state-tab "Superkurzy" [:page :home :filter :superkurzy] [:set-tab :superkurzy]]
-                                                                                         [state-tab "Top ponuka" [:page :home :filter :top-ponuka] [:set-tab :top-ponuka]]]
-                                                                                        ]}}))]
+                                                                          :layout/main [home-page]}}))]
                           :exit   [(fn [ctx]
                                      (js/console.log "Leave home"))]
                           :states [{:id          :filter
                                     :type        :xor
                                     :states      [{:id    :top-5
-                                                   :enter [(sc/raise [:load-boxes :top5])]}
+                                                   :enter [(sc/raise [:load-boxes :top5])
+                                                           (fn [ctx]
+                                                             (-> ctx
+                                                                 (sc/update-db assoc-in [:home-page :filter] :top-5)
+                                                                 (as-> ctx' (update-in ctx' [:ctx :load-boxes-data]
+                                                                                       (fnil conj [])
+                                                                                       {:path   [:home-page :data]
+                                                                                        :filter (get-in ctx' [:ctx :db :home-page :filter])}))))
+                                                           (assoc-db-value [:home-page :active-tab] :top-5)]}
                                                   {:id    :10-naj
-                                                   :enter [(sc/raise [:load-boxes :10naj])]}
+                                                   :enter [(sc/raise [:load-boxes :10naj])
+                                                           (fn [ctx]
+                                                             (-> ctx
+                                                                 (sc/update-db assoc-in [:home-page :filter] :10-naj)
+                                                                 (as-> ctx' (update-in ctx' [:ctx :load-boxes-data]
+                                                                                       (fnil conj [])
+                                                                                       {:path   [:home-page :data]
+                                                                                        :filter (get-in ctx' [:ctx :db :home-page :filter])}))))
+                                                           (assoc-db-value [:home-page :active-tab] :10-naj)]}
                                                   {:id    :superkurzy
-                                                   :enter [(sc/raise [:load-boxes :superkurzy])]}
+                                                   :enter [(sc/raise [:load-boxes :superkurzy])
+                                                           (fn [ctx]
+                                                             (-> ctx
+                                                                 (sc/update-db assoc-in [:home-page :filter] :superkurzy)
+                                                                 (as-> ctx' (update-in ctx' [:ctx :load-boxes-data]
+                                                                                       (fnil conj [])
+                                                                                       {:path   [:home-page :data]
+                                                                                        :filter (get-in ctx' [:ctx :db :home-page :filter])}))))
+                                                           (assoc-db-value [:home-page :active-tab] :superkurzy)]}
                                                   {:id    :top-ponuka
-                                                   :enter [(sc/raise [:load-boxes :top-ponuka])]}]
+                                                   :enter [(sc/raise [:load-boxes :top-ponuka])
+                                                           (fn [ctx]
+                                                             (-> ctx
+                                                                 (sc/update-db assoc-in [:home-page :filter] :top-ponuka)
+                                                                 (as-> ctx' (update-in ctx' [:ctx :load-boxes-data]
+                                                                                       (fnil conj [])
+                                                                                       {:path   [:home-page :data]
+                                                                                        :filter (get-in ctx' [:ctx :db :home-page :filter])}))))
+                                                           (assoc-db-value [:home-page :active-tab] :top-ponuka)]}]
                                     :transitions [{:event     :set-tab
                                                    :target    :top-5
                                                    :condition (sc/event-pred? (fn [[_ tab]]
@@ -279,15 +337,25 @@
   [re-frame/debug]
   (fn [db _]
     db))
-(re-frame/reg-event-fx :dispatch
+
+(re-frame/reg-fx :load-boxes-data (fn [requests]
+                                    (js/console.log "load boxes data")
+                                    (doseq [{:keys [path filter]} requests]
+                                      (js/setTimeout #(re-frame/dispatch [:boxes-loaded path [(str "box1" filter)]]) 1000))))
+(re-frame/reg-event-db :boxes-loaded
   [re-frame/debug]
-  (fn [ctx [_ event]]
-    (sc/process-event idx ctx event)))
+  (fn [db [_ path data]]
+    (assoc-in db path data)))
+
+(re-frame/reg-event-fx :dispatch
+                       [re-frame/debug]
+                       (fn [ctx [_ event]]
+                         (sc/process-event idx ctx event)))
 
 (re-frame/reg-event-fx :initialize-db
-  [re-frame/debug]
-  (fn [_ _]
-    (:ctx (sc/initialize idx {:db db/default-db}))))
+                       [re-frame/debug]
+                       (fn [_ _]
+                         (:ctx (sc/initialize idx {:db db/default-db}))))
 (defn dispatch [event]
   (re-frame/dispatch [:dispatch event]))
 
