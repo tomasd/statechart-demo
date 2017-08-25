@@ -116,19 +116,27 @@
 
 
 (defn transition-domain [idx t]
-  (let [states (effective-target-states t)]
-    ; TODO add internal type
-    (cond
+  ; TODO add internal type
+  (let [states (effective-target-states t)
+        domain (cond
 
-      (empty? states)
-      nil
+                 (empty? states)
+                 nil
 
-      ; should be transition of type internal
-      (descendant? (:target t) (:source t))
-      (get idx (:source t))
+                 ; should be transition of type internal
+                 #_(and false (or (:internal t) (descendant? (:target t) (:source t))))
+                 #_(:internal t)
+                 #_(descendant? (:target t) (:source t))
+                 (and
+                   (:internal t false)
+                   (compound? (get idx (:source t)))
+                   (->> states
+                        (every? #(descendant? % (:source t)))))
+                 (get idx (:source t))
 
-      :else
-      (find-lcca idx (map (partial get idx) (cons (:source t) states))))))
+                 :else
+                 (find-lcca idx (map (partial get idx) (cons (:source t) states))))]
+    domain))
 
 
 (defn initial-states [sm]
@@ -158,7 +166,11 @@
 (declare add-descendats)
 (defn add-ancestors [idx state ancestor]
   (cons state (->> (proper-ancestors idx state ancestor)
-                   (mapcat #(add-descendats idx %)))))
+                   (mapcat (fn [anc]
+                             (cond-> [anc]
+                               (component? anc)
+                               (into (->> (child-states anc)
+                                          (mapcat #(add-descendats idx %))))))))))
 (defn add-descendats [idx state]
   (cons state (cond
                 (compound? state)
@@ -174,6 +186,7 @@
        (mapcat (fn [{:keys [target source] :as t}]
                  (let [children (initial-states-seq (get idx target))
                        ancestor (transition-domain idx t)
+
                        states   (distinct (concat (add-descendats idx (get idx target))
                                                   (->> (effective-target-states t)
                                                        (map #(get idx %))
@@ -515,16 +528,6 @@
           ctx
           executions))
 
-(defn enter-states [ctx enabled-transitions]
-  (->> (transitions-entry-set (:idx ctx) enabled-transitions)
-       ; sort by entry order = document order
-       (sort-by-entry-order)
-       (reduce (fn [ctx state]
-                 (-> ctx
-                     (update-configuration conj (:machine-id state))
-                     (invoke-executions (:enter state))))
-               ctx)))
-
 (defn enter-states' [ctx states]
   (->> states
        ; sort by entry order = document order
@@ -534,6 +537,11 @@
                      (update-configuration (fnil conj #{}) (:machine-id state))
                      (invoke-executions (:enter state))))
                ctx)))
+
+(defn enter-states [ctx enabled-transitions]
+  (->> (transitions-entry-set (:idx ctx) enabled-transitions)
+       (enter-states' ctx)))
+
 
 
 
@@ -689,7 +697,9 @@
   Hsm
   (initialize [this ctx]
     (let [states (init-configuration this)]
-      (enter-states' {:ctx ctx} (map #(get this %) states))))
+      (-> {:ctx ctx}
+          (enter-states' (map #(get this %) states))
+          :ctx)))
   (dispatch [this ctx event]
     (process-event this ctx event)))
 

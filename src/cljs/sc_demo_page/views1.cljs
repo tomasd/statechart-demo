@@ -4,7 +4,8 @@
             [sc-demo-page.statechart :as sc]
             [reagent.ratom :refer-macros [reaction]]
             [clojure.string :as str]
-            [ajax.core :refer [GET POST]]))
+            [ajax.core :refer [GET POST]]
+            [reagent.core :as reagent]))
 
 (defn classnames [m]
   (->> m
@@ -13,44 +14,50 @@
        (str/join " ")))
 
 (re-frame/reg-sub :page
-  (fn [db]
-    (get db :page)))
+                  (fn [db]
+                    (get db :page)))
 
 (re-frame/reg-sub :current-page-name
-  :<- [:page]
-  (fn [page _]
-    (:name page)))
+                  :<- [:page]
+                  (fn [page _]
+                    (:name page)))
 
 (re-frame/reg-sub :home-page
-  (fn [db _]
-    (:home-page db)))
+                  (fn [db _]
+                    (:home-page db)))
 
 (re-frame/reg-sub :home-page/current-tab
-  :<- [:home-page]
-  (fn [home-page]
-    (:current-tab home-page)))
+                  :<- [:home-page]
+                  (fn [home-page]
+                    (:current-tab home-page)))
 
 (re-frame/reg-sub :home-page/tab-boxes
-  :<- [:home-page]
-  (fn [home-page [_]]
-    (get-in home-page [:data :boxes] [])))
+                  :<- [:home-page]
+                  (fn [home-page [_]]
+                    (get-in home-page [:data] [])))
 
 
 (re-frame/reg-sub :betting-page
-  (fn [db _]
-    (:betting-page db)))
-(re-frame/reg-sub :betting-page/tab-boxes
-  :<- [:betting-page]
-  (fn [betting-page [_]]
-    (get-in betting-page [:data :boxes] [])))
+                  (fn [db _]
+                    (:betting-page db)))
+(re-frame/reg-sub :betting-page/boxes
+                  :<- [:betting-page]
+                  (fn [betting-page [_]]
+                    (get-in betting-page [:data] [])))
+
+(re-frame/reg-sub :betting-page/filter
+                  :<- [:betting-page]
+                  (fn [betting-page [_]]
+                    (get-in betting-page [:filter] {})))
 
 (re-frame/reg-sub :menu
-  (fn [db _]
-    (get-in db [:betting :menu :data])))
+                  (fn [db _]
+                    (get-in db [:betting :menu :data])))
 
-(defn goto-substate [event target]
+(defn goto-substate [event target & opts]
   {:event     event
    :target    target
+   :internal  (contains? (into #{} opts) :internal)
    :condition (sc/event-pred? (fn [[_ arg]]
                                 (= arg target)))})
 
@@ -66,7 +73,7 @@
     ctx))
 
 (def loading-page
-  {:id    :loading-page
+  {:id    :page/loading
    :enter [(assoc-page-layout :page-loading :blank {:blank-layout/center [:div [:i.fa.fa-spinner.fa-5x.fa-spin]]})]})
 
 (defn handle-dispatch [cmd]
@@ -103,40 +110,62 @@
        ]]]))
 
 
-(defn menu-panel []
+
+(defn sport-menu-item [box-filter item]
+  [:li
+   [:a {:href     (:slug item)
+        :on-click (handle-dispatch [:set-menu (:slug item)])}
+    (str (when @(reaction (= (:slug item) (get @box-filter :menu))) " * ")
+         (:label item))]
+   (when (seq (:items item))
+     [:ul
+      (for [[i item] (map-indexed vector (:items item))]
+        ^{:key i} [sport-menu-item box-filter item])])])
+
+(defn sport-menu-panel [box-filter]
+  (let [menu (re-frame/subscribe [:menu])]
+    (fn []
+      [:ul
+       (for [[i item] (map-indexed vector (:items @menu))]
+         ^{:key i} [sport-menu-item box-filter item])])))
+
+(defn menu-panel [box-filter]
   [:div.nav.flex-column.nav-pills
    [page-nav-link :page/home "Home"]
    [page-nav-link :page/betting "Betting"]
    [page-nav-link :page/my-matches "My matches"]
    [:hr]
-   [sport-menu-panel]])
-
-(defn sport-menu-item [item]
-  [:li (:label item)
-   (when (seq (:items item))
-     [:ul
-      (for [[i item] (map-indexed vector (:items item))]
-        ^{:key i} [sport-menu-item item])])])
-
-(defn sport-menu-panel []
-  (let [menu (re-frame/subscribe [:menu])]
-    (fn []
-      [:ul
-       (for [[i item] (map-indexed vector (:items @menu))]
-         ^{:key i} [sport-menu-item item])])))
-
+   [sport-menu-panel box-filter]])
 
 (defn assoc-db-value [path value]
   (fn [ctx]
     (sc/update-db ctx assoc-in path value)))
 
-(defn load-boxes [path filter]
+(defn make-filter [filter]
+  (merge {:limit     "50"
+          :live      false
+          :prematch  false
+          :results   false
+          :videoOnly false}
+         filter))
+(defn update-filter [path f & args]
   (fn [ctx]
-    (-> ctx
-        (sc/update-db assoc-in (conj path :filter) filter)
-        (update-in [:ctx :load-boxes] (fnil conj [])
-                   {:path   (conj path :data)
-                    :filter filter}))))
+    (apply sc/update-db ctx update-in (conj path :filter) f args)))
+
+(defn assoc-filter
+  ([path filter]
+   (fn [ctx]
+     (assoc-filter ctx path filter)))
+  ([ctx path filter]
+   (sc/update-db ctx assoc-in (conj path :filter) (make-filter filter))))
+
+(defn reset-boxes [path]
+  (fn [ctx]
+    (let [filter (get-in ctx (into [:ctx :db] (conj path :filter)))]
+      (-> ctx
+          (update-in [:ctx :load-boxes] (fnil conj [])
+                     {:path   (conj path :data)
+                      :filter filter})))))
 
 (defn load-menu [path]
   (fn [ctx]
@@ -160,15 +189,47 @@
        [tab current-tab :superkurzy "Superkurzy" [:set-tab :superkurzy]]
        [tab current-tab :top-ponuka "Top ponuka" [:set-tab :top-ponuka]]])))
 
+(defn omnifilter [box-filter]
+  [:div
+   [:label [:input {:type      "checkbox"
+                    :checked   @(reaction (:prematch @box-filter false))
+                    :on-change (handle-dispatch [:toggle-prematch])}] "Prematch"]
+   [:label [:input {:type      "checkbox"
+                    :checked   @(reaction (:live @box-filter false))
+                    :on-change (handle-dispatch [:toggle-live])}] "Live"]
+   [:label [:input {:type      "checkbox"
+                    :checked   @(reaction (:results @box-filter false))
+                    :on-change (handle-dispatch [:toggle-results])}] "Results"]
+   ])
+
+(defn box-panel [box-store]
+  (let [box                (reagent/cursor box-store [:box])
+        prematch-hierarchy (reagent/cursor box [:prematchHierarchy])]
+    (fn [box-store]
+      [:div
+       (:name @box)
+       (doall (for [group @prematch-hierarchy]
+                (doall (for [{:keys [date betHeaders] :as x} group]
+                         ^{:key date}
+                         [:div date
+                          (doall (for [{:keys [header sportEvents]} betHeaders]
+                                   (doall (for [{:keys [marketId sportEventId betIds]} sportEvents]
+                                             (for [bet-id betIds]
+                                                      (let [bet @(reagent/cursor box-store [:sport-events sportEventId :bets bet-id :bet])]
+                                                        ^{:key bet-id}
+                                                        [:div (str/join " vs " (:participants bet))]))))))]))))])))
+
 (defn boxes-panel [rows]
-  [:table
-   [:thead
-    [:tr
-     [:th "Box"]]]
-   [:tbody
-    (for [row @rows]
-      [:tr {:key (:boxId row)}
-       [:td (:name row)]])]])
+  (let [box-ids (reagent/cursor rows [:box-ids])]
+    (fn [rows]
+      [:table
+       [:thead
+        [:tr
+         [:th "Box"]]]
+       [:tbody
+        (for [box-id @box-ids]
+          [:tr {:key box-id}
+           [:td [box-panel (reagent/cursor rows [:boxes box-id])]]])]])))
 
 (defn dissoc-db-value [key]
   (fn [ctx]
@@ -176,64 +237,80 @@
 
 (def home-page
   {:id          :page/home
-   :enter       [(assoc-page-layout :page/home :column
+   :type        :xor
+   :enter       [(ctx-log "Entering home page")
+                 (assoc-page-layout :page/home :column
                                     {:column-layout/top    [top-menu-panel]
-                                     :column-layout/left   [menu-panel]
-                                     :column-layout/center [:div "Home"
+                                     :column-layout/left   [menu-panel (re-frame/subscribe [:betting-page/filter])]
+                                     :column-layout/center [:div
+                                                            [omnifilter (reagent/atom {})]
                                                             [home-page-tabs]
                                                             [boxes-panel (re-frame/subscribe [:home-page/tab-boxes])]]})]
-   :exit        [(dissoc-db-value :home-page)]
-   :type        :xor
+   :exit        [(dissoc-db-value :home-page)
+                 (ctx-log "Leaving home page")]
    :states      [{:id    :top-5
                   :enter [(assoc-db-value [:home-page :current-tab] :top-5)
-                          (load-boxes [:home-page] {:boxId     ["top5"]
-                                                    :limit     "50"
-                                                    :live      "false"
-                                                    :prematch  "true"
-                                                    :results   "false"
-                                                    :videoOnly "false"})]}
+                          (assoc-filter [:home-page] {:boxId    ["top5"]
+                                                      :prematch true})
+                          (reset-boxes [:home-page])]}
                  {:id    :10-naj
                   :enter [(assoc-db-value [:home-page :current-tab] :10-naj)
-                          (load-boxes [:home-page] {:boxId     ["naj10"]
-                                                    :limit     "50"
-                                                    :live      "false"
-                                                    :prematch  "true"
-                                                    :results   "false"
-                                                    :videoOnly "false"})]}
+                          (assoc-filter [:home-page] {:boxId    ["naj10"]
+                                                      :prematch true})
+                          (reset-boxes [:home-page])]}
                  {:id    :superkurzy
                   :enter [(assoc-db-value [:home-page :current-tab] :superkurzy)
-                          (load-boxes [:home-page] {:boxId     ["superoffer" "superchance" "duel"]
-                                                    :limit     "50"
-                                                    :live      "false"
-                                                    :prematch  "true"
-                                                    :results   "false"
-                                                    :videoOnly "false"})]}
+                          (assoc-filter [:home-page] {:boxId    ["superoffer" "superchance" "duel"]
+                                                      :prematch true})
+                          (reset-boxes [:home-page])]}
                  {:id    :top-ponuka
                   :enter [(assoc-db-value [:home-page :current-tab] :top-ponuka)
-                          (load-boxes [:home-page] {:filter    ["topponuka"]
-                                                    :limit     "50"
-                                                    :live      "false"
-                                                    :prematch  "true"
-                                                    :results   "false"
-                                                    :videoOnly "false"})]}]
-   :transitions [(goto-substate :set-tab :top-5)
-                 (goto-substate :set-tab :10-naj)
-                 (goto-substate :set-tab :superkurzy)
-                 (goto-substate :set-tab :top-ponuka)]})
+                          (assoc-filter [:home-page] {:filter   ["topponuka"]
+                                                      :prematch true})
+                          (reset-boxes [:home-page])]}]
+   :transitions [(goto-substate :set-tab :top-5 :internal)
+                 (goto-substate :set-tab :10-naj :internal)
+                 (goto-substate :set-tab :superkurzy :internal)
+                 (goto-substate :set-tab :top-ponuka :internal)]})
 
 (def betting-page
-  {:id    :page/betting
-   :exit  [(dissoc-db-value :betting-page)]
-   :enter [(assoc-page-layout :page/betting :column
-                              {:column-layout/top    [top-menu-panel]
-                               :column-layout/left   [menu-panel]
-                               :column-layout/center [:div
-                                                      [boxes-panel (re-frame/subscribe [:betting-page/tab-boxes])]]})
-           (load-boxes [:betting-page] {:limit     "50"
-                                        :live      "false"
-                                        :prematch  "true"
-                                        :results   "false"
-                                        :videoOnly "false"})]})
+  {:id          :page/betting
+   :exit        [(dissoc-db-value :betting-page)
+                 (ctx-log "Leaving betting page")]
+   :enter       [(ctx-log "Entering betting page")
+                 (assoc-page-layout :page/betting :column
+                                    {:column-layout/top    [top-menu-panel]
+                                     :column-layout/left   [menu-panel (re-frame/subscribe [:betting-page/filter])]
+                                     :column-layout/center [:div
+                                                            [omnifilter (re-frame/subscribe [:betting-page/filter])]
+                                                            [boxes-panel (re-frame/subscribe [:betting-page/boxes])]]})
+                 (update-filter [:betting-page]
+                                (fn [old]
+                                  (js/console.log "betting page filter" old)
+                                  (if-not old
+                                    (make-filter {:live     true
+                                                  :prematch true})
+                                    old)))
+                 (reset-boxes [:betting-page])]
+   :transitions [{:event   :set-menu
+                  :execute [(fn [ctx]
+                              (let [[_ slug] (sc/current-event ctx)
+                                    ctx ((update-filter [:betting-page] assoc :menu slug) ctx)]
+                                ctx))
+                            (reset-boxes [:betting-page])]
+                  }
+                 {:event   :toggle-prematch
+                  :execute [(update-filter [:betting-page] update :prematch not)
+                            (reset-boxes [:betting-page])]
+                  }
+                 {:event   :toggle-live
+                  :execute [(update-filter [:betting-page] update :live not)
+                            (reset-boxes [:betting-page])]
+                  }
+                 {:event   :toggle-results
+                  :execute [(update-filter [:betting-page] update :results not)
+                            (reset-boxes [:betting-page])]
+                  }]})
 
 (def mymatches-page
   {:id    :page/my-matches
@@ -263,20 +340,54 @@
                                                         mymatches-page]
                                           :transitions [(goto-substate :goto-page :page/home)
                                                         (goto-substate :goto-page :page/betting)
-                                                        (goto-substate :goto-page :page/my-matches)]}
+                                                        (goto-substate :goto-page :page/my-matches)
+                                                        {:event   :set-menu
+                                                         :execute [(fn [ctx]
+                                                                     (let [[_ slug] (sc/current-event ctx)
+                                                                           ctx (assoc-filter ctx [:betting-page] {:menu     slug
+                                                                                                                  :prematch true
+                                                                                                                  :live     true})]
+                                                                       ctx))]
+                                                         :target  :page/betting}
+                                                        {:event   :toggle-prematch
+                                                         :execute [(assoc-filter [:betting-page] {:prematch true})]
+                                                         :target  :page/betting}
+                                                        {:event   :toggle-live
+                                                         :execute [(assoc-filter [:betting-page] {:live true})]
+                                                         :target  :page/betting}
+                                                        {:event   :toggle-results
+                                                         :execute [(assoc-filter [:betting-page] {:results true})]
+                                                         :target  :page/betting}]}
                                          {:id    :menu
                                           :enter [(load-menu [:betting :menu])]}
                                          ]}]}]}))
 
 (re-frame/reg-event-fx :initialize-db
+
   (fn [_ _]
-    (:ctx (sc/initialize idx {:db db/default-db}))))
+    (sc/initialize idx {:db db/default-db})))
 
 (re-frame/reg-event-fx :goto-page
   (fn [ctx event]
     (sc/process-event idx ctx event)))
 
 (re-frame/reg-event-fx :set-tab
+  (fn [ctx event]
+    (sc/process-event idx ctx event)))
+
+(re-frame/reg-event-fx :set-menu
+  (fn [ctx event]
+    (sc/process-event idx ctx event)))
+
+(re-frame/reg-event-fx :toggle-prematch
+  (fn [ctx event]
+    (sc/process-event idx ctx event)))
+
+(re-frame/reg-event-fx :toggle-live
+  (fn [ctx event]
+    (sc/process-event idx ctx event)))
+
+(re-frame/reg-event-fx :toggle-results
   (fn [ctx event]
     (sc/process-event idx ctx event)))
 
@@ -304,17 +415,17 @@
       (layout @page))))
 
 (re-frame/reg-fx :load-boxes
-  (fn [requests]
-    (doseq [{:keys [path filter]} requests]
-      (js/console.log "Loading boxex for" path "with filter" filter)
-      (GET "https://live.nike.sk/api/prematch/boxes/portal"
-           {:params          filter
-            :response-format (ajax.core/json-response-format {:raw true})
-            :handler         (fn [response]
-                               (re-frame/dispatch [:boxes-loaded path response]))
-            :error-handler   (fn [response]
-                               (js/console.log "error" response)
-                               )}))))
+                 (fn [requests]
+                   (doseq [{:keys [path filter]} requests]
+                     (js/console.log "Loading boxes for" path "with filter" filter)
+                     (GET "https://live.nike.sk/api/prematch/boxes/portal"
+                          {:params          filter
+                           :response-format (ajax.core/json-response-format {:raw true})
+                           :handler         (fn [response]
+                                              (re-frame/dispatch [:boxes-loaded path response]))
+                           :error-handler   (fn [response]
+                                              (js/console.log "error" response)
+                                              )}))))
 
 (re-frame/reg-fx :load-menu (fn [requests]
                               (doseq [{:keys [path filter]} requests]
@@ -331,4 +442,44 @@
 
 (re-frame/reg-event-db :boxes-loaded
   (fn [db [_ path data]]
-    (assoc-in db path data)))
+    (let [db (-> db
+                 (update-in path dissoc :boxes)
+                 (update-in path dissoc :box-ids))
+          db (reduce
+               (fn [db box]
+                 (assoc-in db (into path [:boxes (:boxId box) :box]) box))
+               db
+               (:boxes data))
+          db (reduce
+               (fn [db sport-event]
+                 (reduce (fn [db box-id]
+                           (assoc-in db (into path [:boxes box-id :sport-events (:sportEventId sport-event) :sport-event]) sport-event))
+                         db
+                         (:boxIds sport-event)))
+               db
+               (:sportEvents data))
+          db (reduce
+               (fn [db market]
+                 (reduce (fn [db box-id]
+                           (assoc-in db (into path [:boxes box-id :markets (:marketId market) :market]) market))
+                         db
+                         (:boxIds market)))
+               db
+               (:markets data))
+          db (reduce
+               (fn [db bet]
+                 (reduce (fn [db box-id]
+                           (assoc-in db (into path [:boxes box-id :sport-events (:sportEventId bet) :bets (:betId bet) :bet]) bet))
+                         db
+                         (into #{} (concat (:boxIds bet)
+                                           (get-in data [:betBoxIds (:betId bet)] [])))))
+               db
+               (:bets data))
+          db (assoc-in db (conj path :box-ids)
+                       (->> (get-in db (conj path :boxes))
+                            vals
+                            (map :box)
+                            (remove nil?)
+                            (sort-by :order)
+                            (mapv :boxId)))]
+      db)))
