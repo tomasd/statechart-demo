@@ -6,9 +6,9 @@
   [:div
    [:div (:layout/top config)]
    [:div
-    [:div]
-    [:div (:layout/main config)]
-    [:div]]])
+    [:div {:style {:float "left"}} (:layout/left config)]
+    [:div {:style {:float "left"}} (:layout/main config)]
+    [:div {:style {:float "left"}} (:layout/right config)]]])
 
 (defn application []
   (let [page-layout (re-frame/subscribe [:page-layout])]

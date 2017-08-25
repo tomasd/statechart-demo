@@ -21,6 +21,23 @@
                             (dispatch cmd))}
             (str (if @active? "* " "") label)]])))
 
+(re-frame/reg-sub :menu (fn [db _]
+                          (get-in db [:menu])))
+
+(defn menu-item [item]
+  [:li (:label item)
+   (when (seq (:items item))
+     [:ul
+      (for [[i item] (map-indexed vector (:items item))]
+        ^{:key i} [menu-item item])])])
+
+(defn menu-panel []
+  (let [menu (re-frame/subscribe [:menu])]
+    (fn []
+      [:ul
+       (for [[i item] (map-indexed vector (:items @menu))]
+         ^{:key i} [menu-item item])])))
+
 (defn omnifilter []
   [:ul
    [:li [:label [:input {:type     "checkbox"
@@ -38,13 +55,24 @@
                   (fn [db _]
                     (get-in db [:home-page :active-tab])))
 
-(re-frame/reg-sub :home-page-data
-                  (fn [db _]
-                    (get-in db [:home-page :data :boxes] [])))
+(re-frame/reg-sub :boxes-data
+                  (fn [db [_ page]]
+                    (get-in db [page :data :boxes] [])))
+
+(defn boxes-panel [page]
+  (let [rows (re-frame/subscribe [:boxes-data page])]
+    (fn []
+      [:table
+       [:thead
+        [:tr
+         [:th "Box"]]]
+       [:tbody
+        (for [row @rows]
+          [:tr {:key (:boxId row)}
+           [:td (:name row)]])]])))
 
 (defn home-page []
-  (let [active-tab (re-frame/subscribe [:home-active-tab])
-        rows       (re-frame/subscribe [:home-page-data])]
+  (let [active-tab (re-frame/subscribe [:home-active-tab])]
     (fn []
       [:div "home"
        [omnifilter]
@@ -54,29 +82,15 @@
         [state-tab "Superkurzy" active-tab :superkurzy [:set-tab :superkurzy]]
         [state-tab "Top ponuka" active-tab :top-ponuka [:set-tab :top-ponuka]]]
 
-       [:table
-        [:thead
-         [:tr
-          [:th "Box"]]]
-        [:tbody
-         (for [row @rows]
-           [:tr {:key (:boxId row)}
-            [:td (:name row)]])]]])))
+       [boxes-panel :home-page]])))
 
 (defn tipovanie-page []
-  (let [rows (re-frame/subscribe [:home-page-data])]
+  (let [rows (re-frame/subscribe [:boxes-data])]
     (fn []
       [:div "tipovanie"
        [omnifilter]
 
-       [:table
-        [:thead
-         [:tr
-          [:th "Box"]]]
-        [:tbody
-         (for [row @rows]
-           [:tr {:key (:boxId row)}
-            [:td (:name row)]])]]])))
+       [boxes-panel :tipovanie-page]])))
 
 (defn load-tab [tab tab-filter]
   (fn [ctx]
@@ -215,11 +229,17 @@
           {:id          :page
            :type        :xor
            :init        :home
+           :enter       [(fn [ctx]
+                           (-> ctx
+                               (update-in [:ctx :load-menu-data]
+                                          (fnil conj [])
+                                          {:path [:menu]})))]
            :states      [{:id :init}
                          {:id     :tipovanie
                           :type   :and
-                          :enter  [(assoc-db-value [:page] {:name   :page/home
+                          :enter  [(assoc-db-value [:page] {:name   :page/tipovanie
                                                             :layout {:layout/top  [:div "Tipovanie"]
+                                                                     :layout/left [menu-panel]
                                                                      :layout/main [tipovanie-page]}})]
                           :states [{:id          :filter
                                     :type        :xor
@@ -268,6 +288,7 @@
                                         (fn [ctx]
                                           (sc/update-db ctx set-page {:name   :page/home
                                                                       :layout {:layout/top  [:div "Homepage"]
+                                                                               :layout/left [menu-panel]
                                                                                :layout/main [home-page]}}))]
                           :exit        [(fn [ctx]
                                           (sc/update-db ctx dissoc :home-page))]
@@ -389,7 +410,7 @@
     db))
 
 (re-frame/reg-fx :load-boxes-data (fn [requests]
-                                    (js/console.log "load boxes data")
+
                                     (doseq [{:keys [path filter]} requests]
                                       (GET "https://live.nike.sk/api/prematch/boxes/portal" {:params          filter
                                                                                              :response-format (ajax.core/json-response-format {:raw true})
@@ -398,18 +419,31 @@
                                                                                              :error-handler   (fn [response]
                                                                                                                 (js/console.log "error" response)
                                                                                                                 )}))))
+(re-frame/reg-fx :load-menu-data (fn [requests]
+                                   (doseq [{:keys [path filter]} requests]
+                                     (GET "https://live.nike.sk/api/prematch/menu" {:params          {}
+                                                                                    :response-format (ajax.core/json-response-format {:raw true})
+                                                                                    :handler         (fn [response]
+                                                                                                       (re-frame/dispatch [:menu-loaded path response]))
+                                                                                    :error-handler   (fn [response]
+                                                                                                       (js/console.log "error" response))}))))
+(re-frame/reg-event-db :menu-loaded
+  [re-frame/debug]
+  (fn [db [_ path data]]
+    (assoc-in db path data)))
+
 (re-frame/reg-event-db :boxes-loaded
   (fn [db [_ path data]]
     (assoc-in db path data)))
 
 (re-frame/reg-event-fx :dispatch
-  [re-frame/debug]
-  (fn [ctx [_ event]]
-    (sc/process-event idx ctx event)))
+                       [re-frame/debug]
+                       (fn [ctx [_ event]]
+                         (sc/process-event idx ctx event)))
 
 (re-frame/reg-event-fx :initialize-db
-  (fn [_ _]
-    (:ctx (sc/initialize idx {:db db/default-db}))))
+                       (fn [_ _]
+                         (:ctx (sc/initialize idx {:db db/default-db}))))
 (defn dispatch [event]
   (re-frame/dispatch [:dispatch event]))
 
