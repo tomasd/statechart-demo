@@ -73,8 +73,7 @@
     ctx))
 
 (def loading-page
-  {:id    :page/loading
-   :enter [(assoc-page-layout :page-loading :blank {:blank-layout/center [:div [:i.fa.fa-spinner.fa-5x.fa-spin]]})]})
+  {:enter [(assoc-page-layout :page-loading :blank {:blank-layout/center [:div [:i.fa.fa-spinner.fa-5x.fa-spin]]})]})
 
 (defn handle-dispatch [cmd]
   (fn [e]
@@ -208,74 +207,68 @@
     (fn [box-store]
       [:div
        (:name @box)
-       (doall (for [group @prematch-hierarchy]
-                (doall (for [{:keys [date betHeaders] :as x} group]
-                         ^{:key date}
-                         [:div date
-                          (doall (for [{:keys [header sportEvents]} betHeaders]
-                                   (doall (for [{:keys [marketId sportEventId betIds]} sportEvents]
-                                             (for [bet-id betIds]
-                                                      (let [bet @(reagent/cursor box-store [:sport-events sportEventId :bets bet-id :bet])]
-                                                        ^{:key bet-id}
-                                                        [:div (str/join " vs " (:participants bet))]))))))]))))])))
+       [:ul (doall (for [group @prematch-hierarchy]
+                     (doall (for [{:keys [date betHeaders] :as x} group]
+                              ^{:key date}
+                              [:li date
+                               [:ul
+                                (doall (for [{:keys [header sportEvents]} betHeaders]
+                                         (doall (for [{:keys [marketId sportEventId betIds]} sportEvents]
+                                                  (doall (for [bet-id betIds]
+                                                           (let [bet @(reagent/cursor box-store [:sport-events sportEventId :bets bet-id :bet])]
+                                                             ^{:key bet-id}
+                                                             [:li (str/join " vs " (:participants bet))])))))))]]))))]])))
 
 (defn boxes-panel [rows]
   (let [box-ids (reagent/cursor rows [:box-ids])]
     (fn [rows]
-      [:table
-       [:thead
-        [:tr
-         [:th "Box"]]]
-       [:tbody
-        (for [box-id @box-ids]
-          [:tr {:key box-id}
-           [:td [box-panel (reagent/cursor rows [:boxes box-id])]]])]])))
+      [:ul
+       (for [box-id @box-ids]
+         [:li {:key box-id}
+          [box-panel (reagent/cursor rows [:boxes box-id])]])])))
 
 (defn dissoc-db-value [key]
   (fn [ctx]
     (sc/update-db ctx dissoc key)))
 
 (def home-page
-  {:id          :page/home
-   :type        :xor
-   :enter       [(ctx-log "Entering home page")
-                 (assoc-page-layout :page/home :column
-                                    {:column-layout/top    [top-menu-panel]
-                                     :column-layout/left   [menu-panel (re-frame/subscribe [:betting-page/filter])]
-                                     :column-layout/center [:div
-                                                            [omnifilter (reagent/atom {})]
-                                                            [home-page-tabs]
-                                                            [boxes-panel (re-frame/subscribe [:home-page/tab-boxes])]]})]
-   :exit        [(dissoc-db-value :home-page)
-                 (ctx-log "Leaving home page")]
-   :states      [{:id    :top-5
-                  :enter [(assoc-db-value [:home-page :current-tab] :top-5)
-                          (assoc-filter [:home-page] {:boxId    ["top5"]
-                                                      :prematch true})
-                          (reset-boxes [:home-page])]}
-                 {:id    :10-naj
-                  :enter [(assoc-db-value [:home-page :current-tab] :10-naj)
-                          (assoc-filter [:home-page] {:boxId    ["naj10"]
-                                                      :prematch true})
-                          (reset-boxes [:home-page])]}
-                 {:id    :superkurzy
-                  :enter [(assoc-db-value [:home-page :current-tab] :superkurzy)
-                          (assoc-filter [:home-page] {:boxId    ["superoffer" "superchance" "duel"]
-                                                      :prematch true})
-                          (reset-boxes [:home-page])]}
-                 {:id    :top-ponuka
-                  :enter [(assoc-db-value [:home-page :current-tab] :top-ponuka)
-                          (assoc-filter [:home-page] {:filter   ["topponuka"]
-                                                      :prematch true})
-                          (reset-boxes [:home-page])]}]
-   :transitions [(goto-substate :set-tab :top-5 :internal)
-                 (goto-substate :set-tab :10-naj :internal)
-                 (goto-substate :set-tab :superkurzy :internal)
-                 (goto-substate :set-tab :top-ponuka :internal)]})
+  {
+   :type   :and
+   :enter  [(ctx-log "Entering home page")
+            (assoc-page-layout :page/home :column
+                               {:column-layout/top    [top-menu-panel]
+                                :column-layout/left   [menu-panel (re-frame/subscribe [:betting-page/filter])]
+                                :column-layout/center [:div
+                                                       [omnifilter (reagent/atom {})]
+                                                       [home-page-tabs]
+                                                       [boxes-panel (re-frame/subscribe [:home-page/tab-boxes])]]})]
+   :exit   [(dissoc-db-value :home-page)
+            (ctx-log "Leaving home page")]
+   :states {:tabs {:init        :top-5
+                   :type        :xor
+                   :states      {:top-5      {:enter [(assoc-db-value [:home-page :current-tab] :top-5)
+                                                      (assoc-filter [:home-page] {:boxId    ["top5"]
+                                                                                  :prematch true})
+                                                      (reset-boxes [:home-page])]}
+                                 :10-naj     {:enter [(assoc-db-value [:home-page :current-tab] :10-naj)
+                                                      (assoc-filter [:home-page] {:boxId    ["naj10"]
+                                                                                  :prematch true})
+                                                      (reset-boxes [:home-page])]}
+                                 :superkurzy {:enter [(assoc-db-value [:home-page :current-tab] :superkurzy)
+                                                      (assoc-filter [:home-page] {:boxId    ["superoffer" "superchance" "duel"]
+                                                                                  :prematch true})
+                                                      (reset-boxes [:home-page])]}
+                                 :top-ponuka {:enter [(assoc-db-value [:home-page :current-tab] :top-ponuka)
+                                                      (assoc-filter [:home-page] {:filter   ["topponuka"]
+                                                                                  :prematch true})
+                                                      (reset-boxes [:home-page])]}}
+                   :transitions [(goto-substate :set-tab :top-5 :internal)
+                                 (goto-substate :set-tab :10-naj :internal)
+                                 (goto-substate :set-tab :superkurzy :internal)
+                                 (goto-substate :set-tab :top-ponuka :internal)]}}})
 
 (def betting-page
-  {:id          :page/betting
-   :exit        [(dissoc-db-value :betting-page)
+  {:exit        [(dissoc-db-value :betting-page)
                  (ctx-log "Leaving betting page")]
    :enter       [(ctx-log "Entering betting page")
                  (assoc-page-layout :page/betting :column
@@ -313,8 +306,7 @@
                   }]})
 
 (def mymatches-page
-  {:id    :page/my-matches
-   :enter [(assoc-page-layout :page/my-matches :column
+  {:enter [(assoc-page-layout :page/my-matches :column
                               {:column-layout/top    [top-menu-panel]
                                :column-layout/left   [menu-panel]
                                :column-layout/center [:div "My matches"]})]})
@@ -322,45 +314,40 @@
 
 
 (def idx (sc/make-machine
-           {:id     :application
-            :type   :and
-            :states [{:id    :push
-                      :enter [(ctx-log "Starting push")]
-                      :exit  [(ctx-log "Stopping push")]}
-
-                     {:id     :page
-                      :type   :xor
-                      :states [{:id     :betting
-                                :type   :and
-                                :states [{:id          :page
-                                          :type        :xor
-                                          :states      [loading-page
-                                                        home-page
-                                                        betting-page
-                                                        mymatches-page]
-                                          :transitions [(goto-substate :goto-page :page/home)
-                                                        (goto-substate :goto-page :page/betting)
-                                                        (goto-substate :goto-page :page/my-matches)
-                                                        {:event   :set-menu
-                                                         :execute [(fn [ctx]
-                                                                     (let [[_ slug] (sc/current-event ctx)
-                                                                           ctx (assoc-filter ctx [:betting-page] {:menu     slug
-                                                                                                                  :prematch true
-                                                                                                                  :live     true})]
-                                                                       ctx))]
-                                                         :target  :page/betting}
-                                                        {:event   :toggle-prematch
-                                                         :execute [(assoc-filter [:betting-page] {:prematch true})]
-                                                         :target  :page/betting}
-                                                        {:event   :toggle-live
-                                                         :execute [(assoc-filter [:betting-page] {:live true})]
-                                                         :target  :page/betting}
-                                                        {:event   :toggle-results
-                                                         :execute [(assoc-filter [:betting-page] {:results true})]
-                                                         :target  :page/betting}]}
-                                         {:id    :menu
-                                          :enter [(load-menu [:betting :menu])]}
-                                         ]}]}]}))
+           {:type   :and
+            :states {:push {:enter [(ctx-log "Starting push")]
+                            :exit  [(ctx-log "Stopping push")]}
+                     :page {:type   :xor
+                            :init   :betting
+                            :states {:betting {:type   :and
+                                               :states {:page {:type        :xor
+                                                               :init        :page/loading
+                                                               :states      {:page/loading    loading-page
+                                                                             :page/home       home-page
+                                                                             :page/betting    betting-page
+                                                                             :page/my-matches mymatches-page}
+                                                               :transitions [(goto-substate :goto-page :page/home)
+                                                                             (goto-substate :goto-page :page/betting)
+                                                                             (goto-substate :goto-page :page/my-matches)
+                                                                             {:event   :set-menu
+                                                                              :execute [(fn [ctx]
+                                                                                          (let [[_ slug] (sc/current-event ctx)
+                                                                                                ctx (assoc-filter ctx [:betting-page] {:menu     slug
+                                                                                                                                       :prematch true
+                                                                                                                                       :live     true})]
+                                                                                            ctx))]
+                                                                              :target  :page/betting}
+                                                                             {:event   :toggle-prematch
+                                                                              :execute [(assoc-filter [:betting-page] {:prematch true})]
+                                                                              :target  :page/betting}
+                                                                             {:event   :toggle-live
+                                                                              :execute [(assoc-filter [:betting-page] {:live true})]
+                                                                              :target  :page/betting}
+                                                                             {:event   :toggle-results
+                                                                              :execute [(assoc-filter [:betting-page] {:results true})]
+                                                                              :target  :page/betting}]}
+                                                        :menu {:enter [(load-menu [:betting :menu])]}
+                                                        }}}}}}))
 
 (re-frame/reg-event-fx :initialize-db
 

@@ -8,8 +8,8 @@
 (defrecord EventCtx [idx internal-queue event ctx])
 
 (defrecord StateMachine [id machine-id parent-id type states child-states transitions enter exit init order])
-(defrecord ComponentMachine [id machine-id parent-id type states child-states transitions enter exit init order])
-(defrecord AtomicMachine [id machine-id parent-id type transitions enter exit init order])
+(defrecord ComponentMachine [id machine-id parent-id type states child-states transitions enter exit order])
+(defrecord AtomicMachine [id machine-id parent-id type transitions enter exit order])
 (declare Machine)
 
 (defn current-configuration [ctx]
@@ -140,15 +140,16 @@
 
 
 (defn initial-states [sm]
-  (cond
-    (compound? sm)
-    (list (get (:states sm) (first (:child-states sm))))
+  (let [value (cond
+                (compound? sm)
+                (list (get (:states sm) (:init sm)))
 
-    (component? sm)
-    (map (:states sm) (:child-states sm))
+                (component? sm)
+                (map (:states sm) (:child-states sm))
 
-    :else
-    (list)))
+                :else
+                (list))]
+    value))
 
 (defn initial-states-seq [sm]
   (tree-seq compound-machine? initial-states
@@ -226,7 +227,9 @@
 
 
 (defn- make-states [sm machine-id]
-  (let [states (map #(make-state-machine machine-id %) (:states sm))]
+  (let [states (->> (:states sm)
+                    (map (fn [[sub-id machine]]
+                           (make-state-machine machine-id (assoc machine :id sub-id)))))]
     (-> sm
         (assoc :child-states (->> states
                                   (mapv :id))
@@ -277,249 +280,6 @@
 (defn raise [event]
   (fn [ctx]
     (update-in ctx [:ctx :dispatch-n] (fnil conj []) event)))
-
-(def sm (let [filter-offer {:id     :filter-offer
-                            :type   :and
-                            :states [{:id     :prematch
-                                      :type   :xor
-                                      :states [{:id          :on
-                                                :type        :xor
-                                                :enter       [(raise [:load-boxes :prematch :on])]
-                                                :states      [{:id :enabled}
-                                                              {:id :disabled}]
-                                                :transitions [{:event     :toggle-section
-                                                               :target    :off
-                                                               :condition (event-pred? (fn [[_ section]]
-                                                                                         (= section :prematch)))}]}
-                                               {:id          :off
-                                                :type        :xor
-                                                :enter       [(raise [:load-boxes])]
-                                                :states      [{:id :enabled}
-                                                              {:id :disabled}]
-                                                :transitions [{:event     :toggle-section
-                                                               :target    :on
-                                                               :condition (event-pred? (fn [[_ section]]
-                                                                                         (= section :prematch)))}]}]}
-                                     {:id     :live
-                                      :type   :xor
-                                      :states [{:id          :on
-                                                :type        :xor
-                                                :enter       [(raise [:load-boxes])]
-                                                :states      [{:id :enabled}
-                                                              {:id :disabled}]
-                                                :transitions [{:event     :toggle-section
-                                                               :target    :off
-                                                               :condition (event-pred? (fn [[_ section]]
-                                                                                         (= section :live)))}]}
-                                               {:id          :off
-                                                :type        :xor
-                                                :enter       [(raise [:load-boxes])]
-                                                :states      [{:id :enabled}
-                                                              {:id :disabled}]
-                                                :transitions [{:event     :toggle-section
-                                                               :target    :on
-                                                               :condition (event-pred? (fn [[_ section]]
-                                                                                         (= section :live)))}]}]}
-                                     {:id     :result
-                                      :type   :xor
-                                      :states [{:id          :on
-                                                :type        :xor
-                                                :enter       [(raise [:load-boxes])]
-                                                :states      [{:id :enabled}
-                                                              {:id :disabled}]
-                                                :transitions [{:event     :toggle-section
-                                                               :target    :off
-                                                               :condition (event-pred? (fn [[_ section]]
-                                                                                         (= section :result)))}]}
-                                               {:id          :off
-                                                :type        :xor
-                                                :enter       [(raise [:load-boxes])]
-                                                :states      [{:id :enabled}
-                                                              {:id :disabled}]
-                                                :transitions [{:event     :toggle-section
-                                                               :target    :on
-                                                               :condition (event-pred? (fn [[_ section]]
-                                                                                         (= section :result)))}]}]}
-                                     {:id     :video
-                                      :type   :xor
-                                      :states [{:id          :on
-                                                :type        :xor
-                                                :enter       [(raise [:load-boxes])]
-                                                :states      [{:id :enabled}
-                                                              {:id :disabled}]
-                                                :transitions [{:event     :toggle-section
-                                                               :target    :off
-                                                               :condition (event-pred? (fn [[_ section]]
-                                                                                         (= section :video)))}]}
-                                               {:id          :off
-                                                :type        :xor
-                                                :enter       [(raise [:load-boxes])]
-                                                :states      [{:id :enabled}
-                                                              {:id :disabled}]
-                                                :transitions [{:event     :toggle-section
-                                                               :target    :on
-                                                               :condition (event-pred? (fn [[_ section]]
-                                                                                         (= section :video)))}]}]}]}
-              dataset      {:id     :dataset
-                            :type   :and
-                            :states [{:id     :data
-                                      :type   :xor
-                                      :init   :init
-                                      :states [{:id          :init
-                                                :transitions [{:event     :load-data-success
-                                                               :target    :empty
-                                                               :condition (event-pred? (fn [[_ data]]
-                                                                                         (empty? data)))}
-                                                              {:event     :load-data-success
-                                                               :target    :paged
-                                                               :condition (event-pred? (fn [[_ data]]
-                                                                                         (not (:full? data))))}
-                                                              {:event     :load-data-success
-                                                               :target    :full
-                                                               :condition (event-pred? (fn [[_ data]]
-                                                                                         (:full? data)))}]}
-                                               {:id :empty}
-                                               {:id          :paged
-                                                :transitions [{:event     :load-data-success
-                                                               :target    :paged
-                                                               :condition (event-pred? (fn [[_ data]]
-                                                                                         (not (:full? data))))}
-                                                              {:event     :load-data-success
-                                                               :target    :full
-                                                               :condition (event-pred? (fn [[_ data]]
-                                                                                         (:full? data)))}]}
-                                               {:id :full}]}
-                                     {:id     :loader
-                                      :type   :xor
-                                      :init   :init
-                                      :states [{:id          :init
-                                                :transitions [{:event  :load-data
-                                                               :target :loading}]}
-                                               {:id          :loading
-                                                :transitions [{:event  :load-data-success
-                                                               :target :loaded}
-                                                              {:event  :load-data-error
-                                                               :target :error}]}
-                                               {:id          :loaded
-                                                :transitions [{:event :load-data :target :loading}]}
-                                               {:id          :error
-                                                :transitions [{:event :load-data :target :loading}]}]}]}]
-          {:id          :page
-           :type        :xor
-           :init        :home
-           :states      [{:id     :tipovanie
-                          :type   :and
-                          :states [{:id          :filter
-                                    :type        :xor
-                                    :init        :all
-                                    :states      [{:id          :all
-                                                   :transitions [{:event   :set-date
-                                                                  :target  :date
-                                                                  :execute [(raise [:dummy])]}]
-                                                   :enter       [(raise [:load-boxes :all])]
-                                                   :exit        [(raise [:clear-all-boxes])]}
-                                                  {:id          :date
-                                                   :transitions [{:event  :set-menu-item
-                                                                  :target :date-menu-item}
-                                                                 {:event  :clear-date
-                                                                  :target :all}]
-                                                   :enter       [(raise [:load-boxes :date])
-                                                                 (fn [ctx]
-                                                                   (update-db ctx update :value (fnil inc 0)))]}
-                                                  {:id          :menu-item
-                                                   :transitions [{:event  :set-date
-                                                                  :target :date-menu-item}]
-                                                   :enter       [(raise [:load-boxes :menu-item])]}
-                                                  {:id          :date-menu-item
-                                                   :transitions [{:event  :clear-date
-                                                                  :target :date}]
-                                                   :enter       [(raise [:load-boxes :date-menu-item])]}]
-                                    :transitions [{:event  :show-all
-                                                   :target [:page :tipovanie :filter :all]}]}
-                                   filter-offer
-                                   dataset]}
-                         {:id     :home
-                          :type   :and
-                          :states [{:id          :filter
-                                    :type        :xor
-                                    :states      [{:id    :top-5
-                                                   :enter [(raise [:load-boxes])]}
-                                                  {:id    :10-naj
-                                                   :enter [(raise [:load-boxes])]}
-                                                  {:id    :superkurzy
-                                                   :enter [(raise [:load-boxes])]}
-                                                  {:id    :top-ponuka
-                                                   :enter [(raise [:load-boxes])]}]
-                                    :transitions [{:event     :set-tab
-                                                   :target    :top-5
-                                                   :condition (event-pred? (fn [[_ tab]]
-                                                                             (= tab :top-5)))}
-                                                  {:event     :set-tab
-                                                   :target    :10-naj
-                                                   :condition (event-pred? (fn [[_ tab]]
-                                                                             (= tab :10-naj)))}
-                                                  {:event     :set-tab
-                                                   :target    :superkurzy
-                                                   :condition (event-pred? (fn [[_ tab]]
-                                                                             (= tab :superkurzy)))}
-                                                  {:event     :set-tab
-                                                   :target    :top-ponuka
-                                                   :condition (event-pred? (fn [[_ tab]]
-                                                                             (= tab :top-ponuka)))}]}
-                                   filter-offer
-                                   dataset]}
-                         {:id     :superkurzy
-                          :type   :and
-                          :states [{:id    :filter
-                                    :enter [(raise [:load-boxes])]}
-                                   filter-offer
-                                   dataset]}
-                         {:id     :moje
-                          :type   :and
-                          :states [{:id          :filter
-                                    :type        :xor
-                                    :states      [{:id    :all
-                                                   :enter [(raise [:load-boxes])]}
-                                                  {:id    :menu-item
-                                                   :enter [(raise [:load-boxes])]}
-                                                  {:id    :my-matches
-                                                   :enter [(raise [:load-boxes])]}]
-                                    :transitions [{:event  :set-menu-item
-                                                   :target :menu-item}
-                                                  {:event  :set-my-matches
-                                                   :target :mymatches}
-                                                  {:event  :set-all
-                                                   :target :all}]}
-                                   filter-offer
-                                   dataset]}]
-           :transitions [{:event  :show-all
-                          :target [:page :tipovanie :filter :all]
-                          ;:condition (not-in-state? [:page :tipovanie])
-                          }
-                         {:event  :set-date
-                          :target [:page :tipovanie :filter :date]
-                          ;:condition (not-in-state? [:page :tipovanie])
-                          }
-                         {:event  :set-menu-item
-                          :target [:page :tipovanie :filter :set-menu-item]
-                          ;:condition (not-in-state? [:page :tipovanie])
-                          }
-                         {:event     :goto-page
-                          :target    [:page :tipovanie]
-                          :condition (event-pred? (fn [[_ page]]
-                                                    (= page :tipovanie)))}
-                         {:event     :goto-page
-                          :target    [:page :home]
-                          :condition (event-pred? (fn [[_ page]]
-                                                    (= page :home)))}
-                         {:event     :goto-page
-                          :target    [:page :superkurzy]
-                          :condition (event-pred? (fn [[_ page]]
-                                                    (= page :superkurzy)))}
-                         {:event     :goto-page
-                          :target    [:page :moje]
-                          :condition (event-pred? (fn [[_ page]]
-                                                    (= page :moje)))}]}))
 
 
 (defn invoke-executions [ctx executions]
@@ -704,13 +464,17 @@
     (process-event this ctx event)))
 
 (defn make-machine [machine]
-  (let [root (map->StateMachine (make-states {:id         []
-                                              :machine-id []
-                                              :parent-id  []
-                                              :type       :xor
-                                              :order      (swap! last-order inc)
-                                              :states     [machine]
-                                              } []))]
+  (let [constructor (condp = (:type machine)
+                      :xor map->StateMachine
+                      :and map->ComponentMachine
+                      map->StateMachine
+                      )
+        root  (constructor (make-states (merge {:id         []
+                                          :machine-id []
+                                          :parent-id  []
+                                          :order      (swap! last-order inc)}
+                                         machine
+                                         ) []))]
     (->Machine root
                (machines-index root))))
 
