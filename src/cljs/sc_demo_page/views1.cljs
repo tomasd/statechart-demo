@@ -232,8 +232,7 @@
     (sc/update-db ctx dissoc key)))
 
 (def home-page
-  {
-   :type   :and
+  {:type   :and
    :enter  [(ctx-log "Entering home page")
             (assoc-page-layout :page/home :column
                                {:column-layout/top    [top-menu-panel]

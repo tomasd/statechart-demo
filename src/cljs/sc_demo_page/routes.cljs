@@ -18,20 +18,17 @@
   (secretary/set-config! :prefix "#")
   ;; --------------------
   ;; define routes here
-  ;(defroute "/" []
-  ;          (re-frame/dispatch [:dispatch [:goto-page :page/home]]))
-  ;
-  ;(defroute "/tipovanie" []
-  ;          (re-frame/dispatch [:dispatch [:goto-page :page/tipovanie]]))
-  ;
-  ;(defroute "/superkurzy" []
-  ;          (re-frame/dispatch [:dispatch [:goto-page :page/superkurzy]]))
-  ;
-  ;(defroute "/moje" []
-  ;          (re-frame/dispatch [:dispatch [:goto-page :page/moje]]))
-
   (defroute "/" []
             (re-frame/dispatch [:goto-page :page/home]))
+
+  (defroute "/tipovanie" []
+            (re-frame/dispatch [:goto-page :page/betting]))
+
+  (defroute "/superkurzy" []
+            (re-frame/dispatch [:goto-page :page/superkurzy]))
+
+  (defroute "/moje" []
+            (re-frame/dispatch [:goto-page :page/my-matches]))
 
 
   ;; --------------------
