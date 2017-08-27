@@ -142,13 +142,14 @@
                             :states      {:authenticated {:enter [(ctx-log "User authenticated")
                                                                   (assoc-db-value [:user :authenticated?] true)]}
                                           :anonymous     {:enter [(ctx-log "Anonymous user")
-                                                                  (assoc-db-value [:user :authenticated?] false)]}}
-                            :transitions [{:event  :logout
-                                           ;:internal true
-                                           :target :anonymous}
-                                          {:event  :login
-                                           ;:internal true
-                                           :target :authenticated}]}
+                                                                  (assoc-db-value [:user :authenticated?] false)]
+                                                          }}
+                            :transitions [{:event    :logout
+                                           :internal true
+                                           :target   :anonymous}
+                                          {:event    :login
+                                           :internal true
+                                           :target   :authenticated}]}
                      :page {:type   :xor
                             :init   :betting
                             :states {:betting {:type   :and

@@ -101,8 +101,8 @@
       [:div
        (:name @box)
        [:ul (doall (for [group @prematch-hierarchy]
-                     (doall (for [{:keys [date betHeaders] :as x} group]
-                              ^{:key date}
+                     (doall (for [[i {:keys [date betHeaders] :as x}] (map-indexed vector group)]
+                              ^{:key (str i date)}
                               [:li date
                                [:ul
                                 (doall (for [{:keys [header sportEvents]} betHeaders]

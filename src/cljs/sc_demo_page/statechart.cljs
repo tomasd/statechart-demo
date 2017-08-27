@@ -1,5 +1,6 @@
 (ns sc-demo-page.statechart
-  (:require [clojure.set]))
+  (:require [clojure.set]
+            [clojure.set :as set]))
 
 (defprotocol Hsm
   (initialize [this ctx])
@@ -131,11 +132,11 @@
                  #_(and false (or (:internal t) (descendant? (:target t) (:source t))))
                  #_(:internal t)
                  (or                                        ;(descendant? (:target t) (:source t))
-                     (and
-                       (:internal t false)
-                       (compound? (get idx (:source t)))
-                       (->> states
-                            (every? #(descendant? % (:source t))))))
+                   (and
+                     (:internal t false)
+                     (compound? (get idx (:source t)))
+                     (->> states
+                          (every? #(descendant? % (:source t))))))
                  (get idx (:source t))
 
                  :else
@@ -189,11 +190,26 @@
 (defn transitions-entry-set [idx transitions]
   (->> transitions
        (mapcat (fn [{:keys [target source] :as t}]
-                 (let [ancestor (transition-domain idx t)
-                       states   (distinct (concat (add-descendats idx (get idx target))
-                                                  (->> (effective-target-states t)
-                                                       (map #(get idx %))
-                                                       (mapcat #(add-ancestors idx % ancestor)))))]
+                 (let [ancestor               (transition-domain idx t)
+                       immediate-anc-children (->> (effective-target-states t)
+                                                   (map #(get idx %))
+                                                   (map #(last (proper-ancestors idx % ancestor)))
+                                                   (remove nil?)
+                                                   (map :machine-id)
+                                                   )
+                       other-children         (if (seq immediate-anc-children)
+                                                (set/difference (into #{} (map :machine-id (child-states ancestor)))
+                                                                                               immediate-anc-children)
+                                                [])
+                       states                 (distinct (concat (add-descendats idx (get idx target))
+                                                                (->> (effective-target-states t)
+                                                                     (map #(get idx %))
+                                                                     (mapcat #(add-ancestors idx % ancestor)))
+                                                                ; this is different than scxml, we need to visit other children
+                                                                ; from transition domain, as they are exited in trasitions-exit-set
+                                                               (->> other-children
+                                                                     (map #(get idx %))
+                                                                     (mapcat #(add-descendats idx %)))))]
                    states)))))
 
 
@@ -472,10 +488,10 @@
                       map->StateMachine
                       )
         root        (constructor (make-states (merge {:id         []
-                                                        :machine-id []
-                                                        :parent-id  []
-                                                        :order      (swap! last-order inc)}
-                                                       machine) []))]
+                                                      :machine-id []
+                                                      :parent-id  []
+                                                      :order      (swap! last-order inc)}
+                                                     machine) []))]
     (->Machine root
                (machines-index root))))
 
