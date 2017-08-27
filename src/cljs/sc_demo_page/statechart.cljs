@@ -36,8 +36,12 @@
 (defn current-event-id [ctx]
   (first (current-event ctx)))
 
-(defn make-event-ctx [idx ctx]
-  (->EventCtx idx cljs.core.PersistentQueue.EMPTY nil ctx))
+(defn make-event-ctx
+  ([idx ctx]
+   (->EventCtx idx cljs.core.PersistentQueue.EMPTY nil ctx))
+  ([idx ctx event]
+   (-> (make-event-ctx idx ctx)
+       (push-event event))))
 
 
 (defn entry-order [s1 s2]
@@ -126,12 +130,12 @@
                  ; should be transition of type internal
                  #_(and false (or (:internal t) (descendant? (:target t) (:source t))))
                  #_(:internal t)
-                 #_(descendant? (:target t) (:source t))
-                 (and
-                   (:internal t false)
-                   (compound? (get idx (:source t)))
-                   (->> states
-                        (every? #(descendant? % (:source t)))))
+                 (or                                        ;(descendant? (:target t) (:source t))
+                     (and
+                       (:internal t false)
+                       (compound? (get idx (:source t)))
+                       (->> states
+                            (every? #(descendant? % (:source t))))))
                  (get idx (:source t))
 
                  :else
@@ -185,9 +189,7 @@
 (defn transitions-entry-set [idx transitions]
   (->> transitions
        (mapcat (fn [{:keys [target source] :as t}]
-                 (let [children (initial-states-seq (get idx target))
-                       ancestor (transition-domain idx t)
-
+                 (let [ancestor (transition-domain idx t)
                        states   (distinct (concat (add-descendats idx (get idx target))
                                                   (->> (effective-target-states t)
                                                        (map #(get idx %))
@@ -419,9 +421,9 @@
          distinct
          (remove-conflicting-transitions idx configuration))))
 
+
 (defn process-event [idx ctx event]
-  (let [ctx (make-event-ctx idx ctx)
-        ctx (-> ctx (push-event event))
+  (let [ctx (make-event-ctx idx ctx event)
         ctx (loop [ctx ctx]
               (if (seq (:internal-queue ctx))
                 (let [ctx (loop [ctx (pop-event ctx)]
@@ -469,12 +471,11 @@
                       :and map->ComponentMachine
                       map->StateMachine
                       )
-        root  (constructor (make-states (merge {:id         []
-                                          :machine-id []
-                                          :parent-id  []
-                                          :order      (swap! last-order inc)}
-                                         machine
-                                         ) []))]
+        root        (constructor (make-states (merge {:id         []
+                                                        :machine-id []
+                                                        :parent-id  []
+                                                        :order      (swap! last-order inc)}
+                                                       machine) []))]
     (->Machine root
                (machines-index root))))
 

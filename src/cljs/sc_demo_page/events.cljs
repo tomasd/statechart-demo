@@ -1,450 +1,293 @@
 (ns sc-demo-page.events
-
   (:require [re-frame.core :as re-frame]
             [sc-demo-page.db :as db]
             [reagent.ratom :refer-macros [reaction]]
             [reagent.core :as reagent]
             [sc-demo-page.statechart :as sc]
-            [ajax.core :refer [GET POST]]))
+            [ajax.core :refer [GET POST]]
+            [clojure.string :as str]
+            [sc-demo-page.view-utils :as wu]))
 
+(defn goto-substate [event target & opts]
+  {:event     event
+   :target    target
+   :internal  (contains? (into #{} opts) :internal)
+   :condition (sc/event-pred? (fn [[_ arg]]
+                                (= arg target)))})
 
+(defn assoc-page-layout [page-name layout]
+  (fn [ctx]
+    (sc/update-db ctx assoc :page {:name   page-name
+                                   :layout layout})))
 
-(declare set-page)
-(defn set-page [db page]
-  (assoc db :page page))
-(declare dispatch)
-(defn state-tab [label active-tab state cmd]
-  (let [active? (reaction (= @active-tab state))]
-    (fn [label active-tab state cmd]
-      [:li [:a {:href     "#"
-                :on-click (fn [e]
-                            (dispatch cmd))}
-            (str (if @active? "* " "") label)]])))
+(defn ctx-log [message]
+  (fn [ctx]
+    (js/console.log message)
+    ctx))
 
-(re-frame/reg-sub :menu (fn [db _]
-                          (get-in db [:menu])))
-
-(defn menu-item [item]
-  [:li (:label item)
-   (when (seq (:items item))
-     [:ul
-      (for [[i item] (map-indexed vector (:items item))]
-        ^{:key i} [menu-item item])])])
-
-(defn menu-panel []
-  (let [menu (re-frame/subscribe [:menu])]
-    (fn []
-      [:ul
-       (for [[i item] (map-indexed vector (:items @menu))]
-         ^{:key i} [menu-item item])])))
-
-(defn omnifilter []
-  [:ul
-   [:li [:label [:input {:type     "checkbox"
-                         :on-click #(dispatch [:toggle-prematch])}] "Kurzy"]]
-   [:li [:label [:input {:type      "checkbox"
-                         :on-change #(dispatch [:toggle-live])}] "Live"]]
-   [:li [:label [:input {:type      "checkbox"
-                         :on-change #(dispatch [:toggle-results])}] "Vysledky"]]])
+(def loading-page
+  {:enter [(assoc-page-layout :page/loading :layout/blank)]})
 
 (defn assoc-db-value [path value]
   (fn [ctx]
     (sc/update-db ctx assoc-in path value)))
 
-(re-frame/reg-sub :home-active-tab
-                  (fn [db _]
-                    (get-in db [:home-page :active-tab])))
+(defn make-filter [filter]
+  (merge {:limit     "50"
+          :live      false
+          :prematch  false
+          :results   false
+          :videoOnly false}
+         filter))
+(defn update-filter [path f & args]
+  (fn [ctx]
+    (apply sc/update-db ctx update-in (conj path :filter) f args)))
 
-(re-frame/reg-sub :boxes-data
-                  (fn [db [_ page]]
-                    (get-in db [page :data :boxes] [])))
+(defn assoc-filter
+  ([path filter]
+   (fn [ctx]
+     (assoc-filter ctx path filter)))
+  ([ctx path filter]
+   (sc/update-db ctx assoc-in (conj path :filter) (make-filter filter))))
 
-(defn boxes-panel [page]
-  (let [rows (re-frame/subscribe [:boxes-data page])]
-    (fn []
-      [:table
-       [:thead
-        [:tr
-         [:th "Box"]]]
-       [:tbody
-        (for [row @rows]
-          [:tr {:key (:boxId row)}
-           [:td (:name row)]])]])))
+(defn reset-boxes [path]
+  (fn [ctx]
+    (let [filter (get-in ctx (into [:ctx :db] (conj path :filter)))]
+      (-> ctx
+          (update-in [:ctx :load-boxes] (fnil conj [])
+                     {:path   (conj path :data)
+                      :filter filter})))))
 
-(defn home-page []
-  (let [active-tab (re-frame/subscribe [:home-active-tab])]
-    (fn []
-      [:div "home"
-       [omnifilter]
-       [:ul
-        [state-tab "Top 5" active-tab :top-5 [:set-tab :top-5]]
-        [state-tab "10 Naj" active-tab :10-naj [:set-tab :10-naj]]
-        [state-tab "Superkurzy" active-tab :superkurzy [:set-tab :superkurzy]]
-        [state-tab "Top ponuka" active-tab :top-ponuka [:set-tab :top-ponuka]]]
-
-       [boxes-panel :home-page]])))
-
-(defn tipovanie-page []
-  (let [rows (re-frame/subscribe [:boxes-data])]
-    (fn []
-      [:div "tipovanie"
-       [omnifilter]
-
-       [boxes-panel :tipovanie-page]])))
-
-(defn load-tab [tab tab-filter]
+(defn load-menu [path]
   (fn [ctx]
     (-> ctx
-        (sc/update-db assoc-in [:home-page :active-tab] tab)
-        (sc/update-db assoc-in [:home-page :filter] tab-filter)
-        (as-> ctx' (update-in ctx' [:ctx :load-boxes-data]
-                              (fnil conj [])
-                              {:path   [:home-page :data]
-                               :filter (get-in ctx' [:ctx :db :home-page :filter])})))))
+        (update-in [:ctx :load-menu] (fnil conj [])
+                   {:path (conj path :data)}))))
 
-(defn cleanup-tab [tab]
+(defn dissoc-db-value [key]
   (fn [ctx]
-    (-> ctx
-        (sc/update-db update-in [:home-page] dissoc tab))))
+    (sc/update-db ctx dissoc key)))
 
-(def sm (let [filter-offer {:id     :filter-offer
-                            :type   :and
-                            :states [{:id     :prematch
-                                      :type   :xor
-                                      :states [{:id          :on
-                                                :type        :xor
-                                                :states      [{:id :enabled}
-                                                              {:id :disabled}]
-                                                :transitions [{:event     :toggle-section
-                                                               :target    :off
-                                                               :condition (sc/event-pred? (fn [[_ section]]
-                                                                                            (= section :prematch)))}]}
-                                               {:id          :off
-                                                :type        :xor
-                                                :states      [{:id :enabled}
-                                                              {:id :disabled}]
-                                                :transitions [{:event     :toggle-section
-                                                               :target    :on
-                                                               :condition (sc/event-pred? (fn [[_ section]]
-                                                                                            (= section :prematch)))}]}]}
-                                     {:id     :live
-                                      :type   :xor
-                                      :states [{:id          :on
-                                                :type        :xor
-                                                :states      [{:id :enabled}
-                                                              {:id :disabled}]
-                                                :transitions [{:event     :toggle-section
-                                                               :target    :off
-                                                               :condition (sc/event-pred? (fn [[_ section]]
-                                                                                            (= section :live)))}]}
-                                               {:id          :off
-                                                :type        :xor
-                                                :states      [{:id :enabled}
-                                                              {:id :disabled}]
-                                                :transitions [{:event     :toggle-section
-                                                               :target    :on
-                                                               :condition (sc/event-pred? (fn [[_ section]]
-                                                                                            (= section :live)))}]}]}
-                                     {:id     :result
-                                      :type   :xor
-                                      :states [{:id          :on
-                                                :type        :xor
-                                                :states      [{:id :enabled}
-                                                              {:id :disabled}]
-                                                :transitions [{:event     :toggle-section
-                                                               :target    :off
-                                                               :condition (sc/event-pred? (fn [[_ section]]
-                                                                                            (= section :result)))}]}
-                                               {:id          :off
-                                                :type        :xor
-                                                :states      [{:id :enabled}
-                                                              {:id :disabled}]
-                                                :transitions [{:event     :toggle-section
-                                                               :target    :on
-                                                               :condition (sc/event-pred? (fn [[_ section]]
-                                                                                            (= section :result)))}]}]}
-                                     {:id     :video
-                                      :type   :xor
-                                      :states [{:id          :on
-                                                :type        :xor
-                                                :states      [{:id :enabled}
-                                                              {:id :disabled}]
-                                                :transitions [{:event     :toggle-section
-                                                               :target    :off
-                                                               :condition (sc/event-pred? (fn [[_ section]]
-                                                                                            (= section :video)))}]}
-                                               {:id          :off
-                                                :type        :xor
-                                                :enter       [(sc/raise [:load-boxes])]
-                                                :states      [{:id :enabled}
-                                                              {:id :disabled}]
-                                                :transitions [{:event     :toggle-section
-                                                               :target    :on
-                                                               :condition (sc/event-pred? (fn [[_ section]]
-                                                                                            (= section :video)))}]}]}]}
-              dataset      {:id     :dataset
-                            :type   :and
-                            :states [{:id     :data
-                                      :type   :xor
-                                      :init   :init
-                                      :states [{:id          :init
-                                                :transitions [{:event     :load-data-success
-                                                               :target    :empty
-                                                               :condition (sc/event-pred? (fn [[_ data]]
-                                                                                            (empty? data)))}
-                                                              {:event     :load-data-success
-                                                               :target    :paged
-                                                               :condition (sc/event-pred? (fn [[_ data]]
-                                                                                            (not (:full? data))))}
-                                                              {:event     :load-data-success
-                                                               :target    :full
-                                                               :condition (sc/event-pred? (fn [[_ data]]
-                                                                                            (:full? data)))}]}
-                                               {:id :empty}
-                                               {:id          :paged
-                                                :transitions [{:event     :load-data-success
-                                                               :target    :paged
-                                                               :condition (sc/event-pred? (fn [[_ data]]
-                                                                                            (not (:full? data))))}
-                                                              {:event     :load-data-success
-                                                               :target    :full
-                                                               :condition (sc/event-pred? (fn [[_ data]]
-                                                                                            (:full? data)))}]}
-                                               {:id :full}]}
-                                     {:id     :loader
-                                      :type   :xor
-                                      :init   :init
-                                      :states [{:id          :init
-                                                :transitions [{:event  :load-data
-                                                               :target :loading}]}
-                                               {:id          :loading
-                                                :transitions [{:event  :load-data-success
-                                                               :target :loaded}
-                                                              {:event  :load-data-error
-                                                               :target :error}]}
-                                               {:id          :loaded
-                                                :transitions [{:event :load-data :target :loading}]}
-                                               {:id          :error
-                                                :transitions [{:event :load-data :target :loading}]}]}]}]
-          {:id          :page
-           :type        :xor
-           :init        :home
-           :enter       [(fn [ctx]
-                           (-> ctx
-                               (update-in [:ctx :load-menu-data]
-                                          (fnil conj [])
-                                          {:path [:menu]})))]
-           :states      [{:id :init}
-                         {:id     :tipovanie
-                          :type   :and
-                          :enter  [(assoc-db-value [:page] {:name   :page/tipovanie
-                                                            :layout {:layout/top  [:div "Tipovanie"]
-                                                                     :layout/left [menu-panel]
-                                                                     :layout/main [tipovanie-page]}})]
-                          :states [{:id          :filter
-                                    :type        :xor
-                                    :init        :all
-                                    :states      [{:id          :all
-                                                   :transitions [{:event   :set-date
-                                                                  :target  :date
-                                                                  :execute [(sc/raise [:dummy])]}]
-                                                   :enter       [(fn [ctx]
-                                                                   (-> ctx
-                                                                       (sc/update-db assoc-in [:tipovanie-page :filter] {:limit     "50"
-                                                                                                                         :live      "true"
-                                                                                                                         :prematch  "true"
-                                                                                                                         :results   "false"
-                                                                                                                         :videoOnly "false"})
-                                                                       (as-> ctx' (update-in ctx' [:ctx :load-boxes-data]
-                                                                                             (fnil conj [])
-                                                                                             {:path   [:tipovanie-page :data]
-                                                                                              :filter (get-in ctx' [:ctx :db :tipovanie-page :filter])}))))]
-                                                   :exit        [(sc/raise [:clear-all-boxes])]}
-                                                  {:id          :date
-                                                   :transitions [{:event  :set-menu-item
-                                                                  :target :date-menu-item}
-                                                                 {:event  :clear-date
-                                                                  :target :all}]
-                                                   :enter       [(sc/raise [:load-boxes :date])
-                                                                 (fn [ctx]
-                                                                   (sc/update-db ctx update :value (fnil inc 0)))]}
-                                                  {:id          :menu-item
-                                                   :transitions [{:event  :set-date
-                                                                  :target :date-menu-item}]
-                                                   :enter       [(sc/raise [:load-boxes :menu-item])]}
-                                                  {:id          :date-menu-item
-                                                   :transitions [{:event  :clear-date
-                                                                  :target :date}]
-                                                   :enter       [(sc/raise [:load-boxes :date-menu-item])]}]
-                                    :transitions [{:event  :show-all
-                                                   :target [:page :tipovanie :filter :all]}]}
-                                   filter-offer
-                                   dataset]}
-                         {:id          :home
-                          :type        :and
-                          :enter       [(fn [ctx]
-                                          (js/console.log "Enter home")
-                                          ctx)
-                                        (fn [ctx]
-                                          (sc/update-db ctx set-page {:name   :page/home
-                                                                      :layout {:layout/top  [:div "Homepage"]
-                                                                               :layout/left [menu-panel]
-                                                                               :layout/main [home-page]}}))]
-                          :exit        [(fn [ctx]
-                                          (sc/update-db ctx dissoc :home-page))]
-                          :states      [{:id          :filter
-                                         :type        :xor
-                                         :states      [{:id    :top-5
-                                                        :enter [(load-tab :top-5 {:boxId     ["top5"]
-                                                                                  :limit     "50"
-                                                                                  :live      "false"
-                                                                                  :prematch  "true"
-                                                                                  :results   "false"
-                                                                                  :videoOnly "false"})]}
-                                                       {:id    :10-naj
-                                                        :enter [(load-tab :10-naj {:boxId     ["naj10"]
-                                                                                   :limit     "50"
-                                                                                   :live      "false"
-                                                                                   :prematch  "true"
-                                                                                   :results   "false"
-                                                                                   :videoOnly "false"})]}
-                                                       {:id    :superkurzy
-                                                        :enter [(load-tab :superkurzy {:boxId     ["superoffer"
-                                                                                                   "superchance"
-                                                                                                   "duel"]
-                                                                                       :limit     "50"
-                                                                                       :live      "false"
-                                                                                       :prematch  "true"
-                                                                                       :results   "false"
-                                                                                       :videoOnly "false"})]}
-                                                       {:id    :top-ponuka
-                                                        :enter [(load-tab :top-ponuka {:filter    ["topponuka"]
-                                                                                       :limit     "50"
-                                                                                       :live      "false"
-                                                                                       :prematch  "true"
-                                                                                       :results   "false"
-                                                                                       :videoOnly "false"})]}]
-                                         :transitions [{:event     :set-tab
-                                                        :target    :top-5
-                                                        :condition (sc/event-pred? (fn [[_ tab]]
-                                                                                     (= tab :top-5)))}
-                                                       {:event     :set-tab
-                                                        :target    :10-naj
-                                                        :condition (sc/event-pred? (fn [[_ tab]]
-                                                                                     (= tab :10-naj)))}
-                                                       {:event     :set-tab
-                                                        :target    :superkurzy
-                                                        :condition (sc/event-pred? (fn [[_ tab]]
-                                                                                     (= tab :superkurzy)))}
-                                                       {:event     :set-tab
-                                                        :target    :top-ponuka
-                                                        :condition (sc/event-pred? (fn [[_ tab]]
-                                                                                     (= tab :top-ponuka)))}]}
-                                        filter-offer
-                                        dataset]
-                          :transitions [{:event  :toggle-prematch
-                                         :enter  [(fn [ctx]
-                                                    (js/console.log "toggle prematch")
-                                                    ctx)]
-                                         :target [:page :tipovanie]}]}
-                         {:id     :superkurzy
-                          :type   :and
-                          :states [{:id    :filter
-                                    :enter [(sc/raise [:load-boxes :superkurzy])]}
-                                   filter-offer
-                                   dataset]}
-                         {:id     :moje
-                          :type   :and
-                          :states [{:id          :filter
-                                    :type        :xor
-                                    :states      [{:id    :all
-                                                   :enter [(sc/raise [:load-boxes :moje/all])]}
-                                                  {:id    :menu-item
-                                                   :enter [(sc/raise [:load-boxes :moje/menu-item])]}
-                                                  {:id    :my-matches
-                                                   :enter [(sc/raise [:load-boxes :moje/matches])]}]
-                                    :transitions [{:event  :set-menu-item
-                                                   :target :menu-item}
-                                                  {:event  :set-my-matches
-                                                   :target :mymatches}
-                                                  {:event  :set-all
-                                                   :target :all}]}
-                                   filter-offer
-                                   dataset]}]
-           :transitions [{:event  :show-all
-                          :target [:page :tipovanie :filter :all]
-                          ;:condition (not-in-state? [:page :tipovanie])
-                          }
-                         {:event  :set-date
-                          :target [:page :tipovanie :filter :date]
-                          ;:condition (not-in-state? [:page :tipovanie])
-                          }
-                         {:event  :set-menu-item
-                          :target [:page :tipovanie :filter :set-menu-item]
-                          ;:condition (not-in-state? [:page :tipovanie])
-                          }
-                         {:event     :goto-page
-                          :target    [:page :tipovanie]
-                          :condition (sc/event-pred? (fn [[_ page]]
-                                                       (= page :page/tipovanie)))}
-                         {:event     :goto-page
-                          :target    [:page :home]
-                          :condition (sc/event-pred? (fn [[_ page]]
-                                                       (= page :page/home)))}
-                         {:event     :goto-page
-                          :target    [:page :superkurzy]
-                          :condition (sc/event-pred? (fn [[_ page]]
-                                                       (= page :page/superkurzy)))}
-                         {:event     :goto-page
-                          :target    [:page :moje]
-                          :condition (sc/event-pred? (fn [[_ page]]
-                                                       (= page :page/moje)))}]}))
-(def idx
-  (sc/make-machine sm))
 
-(defprotocol IPage
-  (page-layout [this]))
+(def home-page
+  {:type   :and
+   :enter  [(ctx-log "Entering home page")
+            (assoc-page-layout :page/home :layout/column
+                               )]
+   :exit   [(dissoc-db-value :home-page)
+            (ctx-log "Leaving home page")]
+   :states {:tabs {:init        :top-5
+                   :type        :xor
+                   :states      {:top-5      {:enter [(assoc-db-value [:home-page :current-tab] :top-5)
+                                                      (assoc-filter [:home-page] {:boxId    ["top5"]
+                                                                                  :prematch true})
+                                                      (reset-boxes [:home-page])]}
+                                 :10-naj     {:enter [(assoc-db-value [:home-page :current-tab] :10-naj)
+                                                      (assoc-filter [:home-page] {:boxId    ["naj10"]
+                                                                                  :prematch true})
+                                                      (reset-boxes [:home-page])]}
+                                 :superkurzy {:enter [(assoc-db-value [:home-page :current-tab] :superkurzy)
+                                                      (assoc-filter [:home-page] {:boxId    ["superoffer" "superchance" "duel"]
+                                                                                  :prematch true})
+                                                      (reset-boxes [:home-page])]}
+                                 :top-ponuka {:enter [(assoc-db-value [:home-page :current-tab] :top-ponuka)
+                                                      (assoc-filter [:home-page] {:filter   ["topponuka"]
+                                                                                  :prematch true})
+                                                      (reset-boxes [:home-page])]}}
+                   :transitions [(goto-substate :set-tab :top-5 :internal)
+                                 (goto-substate :set-tab :10-naj :internal)
+                                 (goto-substate :set-tab :superkurzy :internal)
+                                 (goto-substate :set-tab :top-ponuka :internal)]}}})
 
-(re-frame/reg-event-db :load-boxes
-  (fn [db _]
-    db))
+(def betting-page
+  {:enter       [(ctx-log "Entering betting page")
+                 (assoc-page-layout :page/betting :layout/column)
+                 (update-filter [:betting-page]
+                                (fn [old]
+                                  (js/console.log "betting page filter" old)
+                                  (if-not old
+                                    (make-filter {:live     true
+                                                  :prematch true})
+                                    old)))
+                 (reset-boxes [:betting-page])]
+   :exit        [(dissoc-db-value :betting-page)
+                 (ctx-log "Leaving betting page")]
+   :transitions [{:event   :set-menu
+                  :execute [(fn [ctx]
+                              (let [[_ slug] (sc/current-event ctx)
+                                    ctx ((update-filter [:betting-page] assoc :menu slug) ctx)]
+                                ctx))
+                            (reset-boxes [:betting-page])]}
+                 {:event   :toggle-prematch
+                  :execute [(update-filter [:betting-page] update :prematch not)
+                            (reset-boxes [:betting-page])]}
+                 {:event   :toggle-live
+                  :execute [(update-filter [:betting-page] update :live not)
+                            (reset-boxes [:betting-page])]}
+                 {:event   :toggle-results
+                  :execute [(update-filter [:betting-page] update :results not)
+                            (reset-boxes [:betting-page])]}]})
 
-(re-frame/reg-fx :load-boxes-data (fn [requests]
+(def mymatches-page
+  {:enter [(assoc-page-layout :page/my-matches :layout/column)]})
 
-                                    (doseq [{:keys [path filter]} requests]
-                                      (GET "https://live.nike.sk/api/prematch/boxes/portal" {:params          filter
-                                                                                             :response-format (ajax.core/json-response-format {:raw true})
-                                                                                             :handler         (fn [response]
-                                                                                                                (re-frame/dispatch [:boxes-loaded path response]))
-                                                                                             :error-handler   (fn [response]
-                                                                                                                (js/console.log "error" response)
-                                                                                                                )}))))
-(re-frame/reg-fx :load-menu-data (fn [requests]
-                                   (doseq [{:keys [path filter]} requests]
-                                     (GET "https://live.nike.sk/api/prematch/menu" {:params          {}
-                                                                                    :response-format (ajax.core/json-response-format {:raw true})
-                                                                                    :handler         (fn [response]
-                                                                                                       (re-frame/dispatch [:menu-loaded path response]))
-                                                                                    :error-handler   (fn [response]
-                                                                                                       (js/console.log "error" response))}))))
+(def idx (sc/make-machine
+           {:type   :and
+            :states {:push {:enter [(ctx-log "Starting push")]
+                            :exit  [(ctx-log "Stopping push")]}
+                     :user {:type        :xor
+                            :init        :anonymous
+                            :enter       [(ctx-log "Starting user")]
+                            :exit        [(ctx-log "Stopping user")]
+                            :states      {:authenticated {:enter [(ctx-log "User authenticated")
+                                                                  (assoc-db-value [:user :authenticated?] true)]}
+                                          :anonymous     {:enter [(ctx-log "Anonymous user")
+                                                                  (assoc-db-value [:user :authenticated?] false)]}}
+                            :transitions [{:event  :logout
+                                           ;:internal true
+                                           :target :anonymous}
+                                          {:event  :login
+                                           ;:internal true
+                                           :target :authenticated}]}
+                     :page {:type   :xor
+                            :init   :betting
+                            :states {:betting {:type   :and
+                                               :states {:page {:type        :xor
+                                                               :init        :page/loading
+                                                               :states      {:page/loading    loading-page
+                                                                             :page/home       home-page
+                                                                             :page/betting    betting-page
+                                                                             :page/my-matches mymatches-page}
+                                                               :transitions [(goto-substate :goto-page :page/home)
+                                                                             (goto-substate :goto-page :page/betting)
+                                                                             (goto-substate :goto-page :page/my-matches)
+                                                                             {:event   :set-menu
+                                                                              :execute [(fn [ctx]
+                                                                                          (let [[_ slug] (sc/current-event ctx)
+                                                                                                ctx (assoc-filter ctx [:betting-page] {:menu     slug
+                                                                                                                                       :prematch true
+                                                                                                                                       :live     true})]
+                                                                                            ctx))]
+                                                                              :target  :page/betting}
+                                                                             {:event   :toggle-prematch
+                                                                              :execute [(assoc-filter [:betting-page] {:prematch true})]
+                                                                              :target  :page/betting}
+                                                                             {:event   :toggle-live
+                                                                              :execute [(assoc-filter [:betting-page] {:live true})]
+                                                                              :target  :page/betting}
+                                                                             {:event   :toggle-results
+                                                                              :execute [(assoc-filter [:betting-page] {:results true})]
+                                                                              :target  :page/betting}]}
+                                                        :menu {:enter [(load-menu [:betting :menu])]}
+                                                        }}}}}}))
+
+(re-frame/reg-event-fx :initialize-db
+
+  (fn [_ _]
+    (sc/initialize idx {:db db/default-db})))
+
+(re-frame/reg-event-fx :goto-page
+  (fn [ctx event]
+    (sc/process-event idx ctx event)))
+
+(re-frame/reg-event-fx :set-tab
+  (fn [ctx event]
+    (sc/process-event idx ctx event)))
+
+(re-frame/reg-event-fx :set-menu
+  (fn [ctx event]
+    (sc/process-event idx ctx event)))
+
+(re-frame/reg-event-fx :toggle-prematch
+  (fn [ctx event]
+    (sc/process-event idx ctx event)))
+
+(re-frame/reg-event-fx :toggle-live
+  (fn [ctx event]
+    (sc/process-event idx ctx event)))
+
+(re-frame/reg-event-fx :toggle-results
+  (fn [ctx event]
+    (sc/process-event idx ctx event)))
+
+
+
+
+
+(re-frame/reg-fx :load-boxes
+                 (fn [requests]
+                   (doseq [{:keys [path filter]} requests]
+                     (js/console.log "Loading boxes for" path "with filter" filter)
+                     (GET "https://live.nike.sk/api/prematch/boxes/portal"
+                          {:params          filter
+                           :response-format (ajax.core/json-response-format {:raw true})
+                           :handler         (fn [response]
+                                              (re-frame/dispatch [:boxes-loaded path response]))
+                           :error-handler   (fn [response]
+                                              (js/console.log "error" response)
+                                              )}))))
+
+(re-frame/reg-fx :load-menu (fn [requests]
+                              (doseq [{:keys [path filter]} requests]
+                                (GET "https://live.nike.sk/api/prematch/menu" {:params          {}
+                                                                               :response-format (ajax.core/json-response-format {:raw true})
+                                                                               :handler         (fn [response]
+                                                                                                  (re-frame/dispatch [:menu-loaded path response]))
+                                                                               :error-handler   (fn [response]
+                                                                                                  (js/console.log "error" response))}))))
+
 (re-frame/reg-event-db :menu-loaded
-  [re-frame/debug]
   (fn [db [_ path data]]
     (assoc-in db path data)))
 
 (re-frame/reg-event-db :boxes-loaded
   (fn [db [_ path data]]
-    (assoc-in db path data)))
+    (let [db (-> db
+                 (update-in path dissoc :boxes)
+                 (update-in path dissoc :box-ids))
+          db (reduce
+               (fn [db box]
+                 (assoc-in db (into path [:boxes (:boxId box) :box]) box))
+               db
+               (:boxes data))
+          db (reduce
+               (fn [db sport-event]
+                 (reduce (fn [db box-id]
+                           (assoc-in db (into path [:boxes box-id :sport-events (:sportEventId sport-event) :sport-event]) sport-event))
+                         db
+                         (:boxIds sport-event)))
+               db
+               (:sportEvents data))
+          db (reduce
+               (fn [db market]
+                 (reduce (fn [db box-id]
+                           (assoc-in db (into path [:boxes box-id :markets (:marketId market) :market]) market))
+                         db
+                         (:boxIds market)))
+               db
+               (:markets data))
+          db (reduce
+               (fn [db bet]
+                 (reduce (fn [db box-id]
+                           (assoc-in db (into path [:boxes box-id :sport-events (:sportEventId bet) :bets (:betId bet) :bet]) bet))
+                         db
+                         (into #{} (concat (:boxIds bet)
+                                           (get-in data [:betBoxIds (:betId bet)] [])))))
+               db
+               (:bets data))
+          db (assoc-in db (conj path :box-ids)
+                       (->> (get-in db (conj path :boxes))
+                            vals
+                            (map :box)
+                            (remove nil?)
+                            (sort-by :order)
+                            (mapv :boxId)))]
+      db)))
 
-(re-frame/reg-event-fx :dispatch
-                       [re-frame/debug]
-                       (fn [ctx [_ event]]
-                         (sc/process-event idx ctx event)))
+(re-frame/reg-event-fx :login
+  (fn [ctx event]
+    (sc/process-event idx ctx event)))
 
-(re-frame/reg-event-fx :initialize-db
-                       (fn [_ _]
-                         (:ctx (sc/initialize idx {:db db/default-db}))))
-(defn dispatch [event]
-  (re-frame/dispatch [:dispatch event]))
-
-; https://live.nike.sk/api/prematch/menu
+(re-frame/reg-event-fx :logout
+  (fn [ctx event]
+    (sc/process-event idx ctx event)))
