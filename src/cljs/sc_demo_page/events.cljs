@@ -3,22 +3,30 @@
             [sc-demo-page.db :as db]
             [reagent.ratom :refer-macros [reaction]]
             [reagent.core :as reagent]
-            [sc-demo-page.statechart :as sc]
+            [sc-demo-page.statechart1 :as sc]
             [ajax.core :refer [GET POST]]
             [clojure.string :as str]
-            [sc-demo-page.view-utils :as wu]))
+            [sc-demo-page.view-utils :as wu]
+            [sc-demo-page.context :as ctx]))
+
+(defn event-pred? [predicate]
+  (fn [ctx]
+    (predicate (ctx/current-event ctx))))
+
+(defn update-db [ctx f & args]
+  (apply update-in ctx [:fx :db] f args))
 
 (defn goto-substate [event target & opts]
   {:event     event
    :target    target
    :internal  (contains? (into #{} opts) :internal)
-   :condition (sc/event-pred? (fn [[_ arg]]
-                                (= arg target)))})
+   :condition (event-pred? (fn [[_ arg]]
+                             (= arg target)))})
 
 (defn assoc-page-layout [page-name layout]
   (fn [ctx]
-    (sc/update-db ctx assoc :page {:name   page-name
-                                   :layout layout})))
+    (update-db ctx assoc :page {:name   page-name
+                                :layout layout})))
 
 (defn ctx-log [message]
   (fn [ctx]
@@ -30,7 +38,7 @@
 
 (defn assoc-db-value [path value]
   (fn [ctx]
-    (sc/update-db ctx assoc-in path value)))
+    (update-db ctx assoc-in path value)))
 
 (defn make-filter [filter]
   (merge {:limit     "50"
@@ -41,32 +49,33 @@
          filter))
 (defn update-filter [path f & args]
   (fn [ctx]
-    (apply sc/update-db ctx update-in (conj path :filter) f args)))
+    (apply update-db ctx update-in (conj path :filter) f args)))
 
 (defn assoc-filter
   ([path filter]
    (fn [ctx]
      (assoc-filter ctx path filter)))
   ([ctx path filter]
-   (sc/update-db ctx assoc-in (conj path :filter) (make-filter filter))))
+   (update-db ctx assoc-in (conj path :filter) (make-filter filter))))
 
 (defn reset-boxes [path]
   (fn [ctx]
-    (let [filter (get-in ctx (into [:ctx :db] (conj path :filter)))]
-      (-> ctx
-          (update-in [:ctx :load-boxes] (fnil conj [])
-                     {:path   (conj path :data)
-                      :filter filter})))))
+    (let [filter (get-in ctx (into [:fx :db] (conj path :filter)))
+          ctx  (-> ctx
+                     (update-in [:fx :load-boxes] (fnil conj [])
+                                {:path   (conj path :data)
+                                 :filter filter}))]
+      ctx)))
 
 (defn load-menu [path]
   (fn [ctx]
     (-> ctx
-        (update-in [:ctx :load-menu] (fnil conj [])
+        (update-in [:fx :load-menu] (fnil conj [])
                    {:path (conj path :data)}))))
 
 (defn dissoc-db-value [key]
   (fn [ctx]
-    (sc/update-db ctx dissoc key)))
+    (update-db ctx dissoc key)))
 
 
 (def home-page
@@ -114,7 +123,7 @@
                  (ctx-log "Leaving betting page")]
    :transitions [{:event   :set-menu
                   :execute [(fn [ctx]
-                              (let [[_ slug] (sc/current-event ctx)
+                              (let [[_ slug] (ctx/current-event ctx)
                                     ctx ((update-filter [:betting-page] assoc :menu slug) ctx)]
                                 ctx))
                             (reset-boxes [:betting-page])]}
@@ -131,7 +140,7 @@
 (def mymatches-page
   {:enter [(assoc-page-layout :page/my-matches :layout/column)]})
 
-(def idx (sc/make-machine
+(def idx (sc/make-statechart
            {:type   :and
             :states {:push {:enter [(ctx-log "Starting push")]
                             :exit  [(ctx-log "Stopping push")]}
@@ -164,7 +173,7 @@
                                                                              (goto-substate :goto-page :page/my-matches)
                                                                              {:event   :set-menu
                                                                               :execute [(fn [ctx]
-                                                                                          (let [[_ slug] (sc/current-event ctx)
+                                                                                          (let [[_ slug] (ctx/current-event ctx)
                                                                                                 ctx (assoc-filter ctx [:betting-page] {:menu     slug
                                                                                                                                        :prematch true
                                                                                                                                        :live     true})]
@@ -182,34 +191,46 @@
                                                         :menu {:enter [(load-menu [:betting :menu])]}
                                                         }}}}}}))
 
-(re-frame/reg-event-fx :initialize-db
+(defn process-event [ctx event]
+  (let [configuration (get-in ctx [:db :configuration])
+        {:keys [fx configuration] :as x} (sc/process-event idx configuration (select-keys ctx [:db]) event)]
+    (assoc-in fx [:db :configuration] configuration)))
 
+(re-frame/reg-event-fx :initialize-db
+  #_[re-frame/debug]
   (fn [_ _]
-    (sc/initialize idx {:db db/default-db})))
+    (let [{:keys [fx configuration] :as x} (sc/initialize idx {:db db/default-db})]
+      (assoc-in fx [:db :configuration] configuration))))
 
 (re-frame/reg-event-fx :goto-page
+  #_[re-frame/debug]
   (fn [ctx event]
-    (sc/process-event idx ctx event)))
+    (process-event ctx event)))
 
 (re-frame/reg-event-fx :set-tab
+  #_[re-frame/debug]
   (fn [ctx event]
-    (sc/process-event idx ctx event)))
+    (process-event ctx event)))
 
 (re-frame/reg-event-fx :set-menu
+  #_[re-frame/debug]
   (fn [ctx event]
-    (sc/process-event idx ctx event)))
+    (process-event ctx event)))
 
 (re-frame/reg-event-fx :toggle-prematch
+  #_[re-frame/debug]
   (fn [ctx event]
-    (sc/process-event idx ctx event)))
+    (process-event ctx event)))
 
 (re-frame/reg-event-fx :toggle-live
+  #_[re-frame/debug]
   (fn [ctx event]
-    (sc/process-event idx ctx event)))
+    (process-event ctx event)))
 
 (re-frame/reg-event-fx :toggle-results
+  #_[re-frame/debug]
   (fn [ctx event]
-    (sc/process-event idx ctx event)))
+    (process-event ctx event)))
 
 
 
@@ -287,8 +308,8 @@
 
 (re-frame/reg-event-fx :login
   (fn [ctx event]
-    (sc/process-event idx ctx event)))
+    (process-event ctx event)))
 
 (re-frame/reg-event-fx :logout
   (fn [ctx event]
-    (sc/process-event idx ctx event)))
+    (process-event ctx event)))
