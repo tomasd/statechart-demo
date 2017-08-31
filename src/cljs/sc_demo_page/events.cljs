@@ -61,7 +61,7 @@
 (defn reset-boxes [path]
   (fn [ctx]
     (let [filter (get-in ctx (into [:fx :db] (conj path :filter)))
-          ctx  (-> ctx
+          ctx    (-> ctx
                      (update-in [:fx :load-boxes] (fnil conj [])
                                 {:path   (conj path :data)
                                  :filter filter}))]
@@ -79,37 +79,51 @@
 
 
 (def home-page
-  {:type   :and
-   :enter  [(ctx-log "Entering home page")
-            (assoc-page-layout :page/home :layout/column
-                               )]
-   :exit   [(dissoc-db-value :home-page)
-            (ctx-log "Leaving home page")]
-   :states {:tabs {:init        :top-5
-                   :type        :xor
-                   :states      {:top-5      {:enter [(assoc-db-value [:home-page :current-tab] :top-5)
-                                                      (assoc-filter [:home-page] {:boxId    ["top5"]
-                                                                                  :prematch true})
-                                                      (reset-boxes [:home-page])]}
-                                 :10-naj     {:enter [(assoc-db-value [:home-page :current-tab] :10-naj)
-                                                      (assoc-filter [:home-page] {:boxId    ["naj10"]
-                                                                                  :prematch true})
-                                                      (reset-boxes [:home-page])]}
-                                 :superkurzy {:enter [(assoc-db-value [:home-page :current-tab] :superkurzy)
-                                                      (assoc-filter [:home-page] {:boxId    ["superoffer" "superchance" "duel"]
-                                                                                  :prematch true})
-                                                      (reset-boxes [:home-page])]}
-                                 :top-ponuka {:enter [(assoc-db-value [:home-page :current-tab] :top-ponuka)
-                                                      (assoc-filter [:home-page] {:filter   ["topponuka"]
-                                                                                  :prematch true})
-                                                      (reset-boxes [:home-page])]}}
-                   :transitions [(goto-substate :set-tab :top-5 :internal)
-                                 (goto-substate :set-tab :10-naj :internal)
-                                 (goto-substate :set-tab :superkurzy :internal)
-                                 (goto-substate :set-tab :top-ponuka :internal)]}}})
+  {:type    :and
+   :enter   [(ctx-log "Entering home page")
+             (assoc-page-layout :page/home :layout/column
+                                )]
+   :history :deep
+   :exit    [(dissoc-db-value :home-page)
+             (ctx-log "Leaving home page")]
+   :states  {:tabs {:init        :top-5
+                    :type        :xor
+                    :states      {:top-5      {:enter [(assoc-db-value [:home-page :current-tab] :top-5)
+                                                       (assoc-filter [:home-page] {:boxId    ["top5"]
+                                                                                   :prematch true})
+                                                       (reset-boxes [:home-page])]}
+                                  :10-naj     {:enter [(assoc-db-value [:home-page :current-tab] :10-naj)
+                                                       (assoc-filter [:home-page] {:boxId    ["naj10"]
+                                                                                   :prematch true})
+                                                       (reset-boxes [:home-page])]}
+                                  :superkurzy {:enter [(assoc-db-value [:home-page :current-tab] :superkurzy)
+                                                       (assoc-filter [:home-page] {:boxId    ["superoffer" "superchance" "duel"]
+                                                                                   :prematch true})
+                                                       (reset-boxes [:home-page])]}
+                                  :top-ponuka {:enter [(assoc-db-value [:home-page :current-tab] :top-ponuka)
+                                                       (assoc-filter [:home-page] {:filter   ["topponuka"]
+                                                                                   :prematch true})
+                                                       (reset-boxes [:home-page])]}}
+                    :transitions [(goto-substate :set-tab :top-5 :internal)
+                                  (goto-substate :set-tab :10-naj :internal)
+                                  (goto-substate :set-tab :superkurzy :internal)
+                                  (goto-substate :set-tab :top-ponuka :internal)]}}})
 
 (def betting-page
-  {:enter       [(ctx-log "Entering betting page")
+  {:type        :and
+   :history     :deep
+   :states      {:prematch {:type   :xor
+                            :enter  [(ctx-log "Entering prematch state")]
+                            :init   :on
+                            :states {:on  {:enter       [(update-filter [:betting-page] assoc :prematch true)
+                                                         (reset-boxes [:betting-page])]
+                                           :transitions [{:event  :toggle-prematch
+                                                          :target [:page :betting :page :page/betting :prematch :off]}]}
+                                     :off {:enter       [(update-filter [:betting-page] assoc :prematch false)
+                                                         (reset-boxes [:betting-page])]
+                                           :transitions [{:event  :toggle-prematch
+                                                          :target [:page :betting :page :page/betting :prematch :on]}]}}}}
+   :enter       [(ctx-log "Entering betting page")
                  (assoc-page-layout :page/betting :layout/column)
                  (update-filter [:betting-page]
                                 (fn [old]
@@ -126,9 +140,6 @@
                               (let [[_ slug] (ctx/current-event ctx)
                                     ctx ((update-filter [:betting-page] assoc :menu slug) ctx)]
                                 ctx))
-                            (reset-boxes [:betting-page])]}
-                 {:event   :toggle-prematch
-                  :execute [(update-filter [:betting-page] update :prematch not)
                             (reset-boxes [:betting-page])]}
                  {:event   :toggle-live
                   :execute [(update-filter [:betting-page] update :live not)
@@ -218,7 +229,7 @@
     (process-event ctx event)))
 
 (re-frame/reg-event-fx :toggle-prematch
-  #_[re-frame/debug]
+  [re-frame/debug]
   (fn [ctx event]
     (process-event ctx event)))
 

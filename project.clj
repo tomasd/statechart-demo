@@ -32,7 +32,7 @@
   :cljsbuild
   {:builds
    [{:id           "dev"
-     :source-paths ["src/cljs"]
+     :source-paths ["src/cljs" "src/clj"]
      :figwheel     {:on-jsload "sc-demo-page.core/mount-root"}
      :compiler     {:main                 sc-demo-page.core
                     :output-to            "resources/public/js/compiled/app.js"

@@ -74,32 +74,29 @@
                 :order order)
          (make-transitions state-index)
          (state/new-state)))))
-(defn effective-target-states [transition]
+
+(defn effective-target-states [transition ctx]
   ; TODO Add history
-  (list (transition/target-state transition)))
+  (->> (list (transition/target-state transition))
+       (mapcat (fn [target]
+                 (if (state/history? target)
+                   (ctx/state-history target ctx)
+                   [target])))))
 
 
 
-(defn proper-ancestors [state1 cap-state]
-  (let [state1-id (state/state-id state1)
-        state2-id (when (some? cap-state)
-                    (state/state-id cap-state))]
-    (->> (range 0 (count state1-id))
-         (map #(subvec state1-id 0 %))
-         (reverse)
-         (take-while #(not= % state2-id))
-         (map #(state/get-state state1 %)))))
+
 
 (defn find-lcca [states]
   (let [[head & tail] states]
-    (->> (proper-ancestors head nil)
+    (->> (state/proper-ancestors head nil)
          (filter #(or (state/compound? %) (state/component? %)))
          (filter (fn [ancestor]
                    (every? #(state/descendant? % ancestor) tail)))
          first)))
 
-(defn transition-domain [t]
-  (let [states (effective-target-states t)
+(defn transition-domain [t ctx]
+  (let [states (effective-target-states t ctx)
         source (transition/source-state t)]
     (cond
 
@@ -116,64 +113,68 @@
       :else
       (find-lcca (cons source states)))))
 
-(defn full-configuration [configuration]
-  (->> configuration
-       (mapcat #(cons % (proper-ancestors % nil)))
-       (distinct)))
 
-(defn transitions-exit-set [configuration enabled-transitions]
-  (let [configuration (full-configuration configuration)]
+
+(defn transitions-exit-set [ctx enabled-transitions]
+  (let [configuration (ctx/full-configuration ctx)]
     (->> enabled-transitions
          (filter transition/targetted-transition?)
          (mapcat (fn [t]
-                   (let [domain (transition-domain t)]
+                   (let [domain (transition-domain t ctx)]
                      (->> configuration
                           (filter #(state/descendant? % domain))))))
          distinct)))
 
 (declare add-descendants)
-(defn add-ancestors [state ancestor]
-  (cons state (->> (proper-ancestors state ancestor)
+(defn add-ancestors [state ancestor ctx]
+  (cons state (->> (state/proper-ancestors state ancestor)
                    (mapcat (fn [anc]
                              (cond-> [anc]
                                (state/component? anc)
                                (into (->> (state/substates anc)
-                                          (mapcat #(add-descendants %))))))))))
-(defn add-descendants [state]
-  (cons state (cond
-                (state/compound? state)
-                (-> (concat
-                      (mapcat #(add-descendants %) (state/initial-states state))
-                      (mapcat #(add-ancestors % state) (state/initial-states state)))
-                    distinct)
+                                          (mapcat #(add-descendants % ctx))))))))))
+(defn add-descendants [state ctx]
+  (cons state
+        (if (state/history? state)
+          (->> (ctx/state-history state ctx)
+               (mapcat (fn [state]
+                         (cons state (-> (concat
+                                           (mapcat #(add-descendants % ctx) (state/initial-states state))
+                                           (mapcat #(add-ancestors % state ctx) (state/initial-states state)))
+                                         distinct)))))
+          (cond
+            (state/compound? state)
+            (-> (concat
+                  (mapcat #(add-descendants % ctx) (state/initial-states state))
+                  (mapcat #(add-ancestors % state ctx) (state/initial-states state)))
+                distinct)
 
-                (state/component? state)
-                (-> (mapcat #(add-descendants %) (state/substates state))
-                    distinct))))
+            (state/component? state)
+            (-> (mapcat #(add-descendants % ctx) (state/substates state))
+                distinct)))))
 
-(defn transitions-entry-set [transitions]
+(defn transitions-entry-set [ctx transitions]
   (->> transitions
        (mapcat (fn [t]
-                 (let [ancestor               (transition-domain t)
-                       immediate-anc-children (->> (effective-target-states t)
-                                                   (map #(last (proper-ancestors % ancestor)))
+                 (let [ancestor               (transition-domain t ctx)
+                       immediate-anc-children (->> (effective-target-states t ctx)
+                                                   (map #(last (state/proper-ancestors % ancestor)))
                                                    (remove nil?))
                        other-children         (if (seq immediate-anc-children)
                                                 (set/difference (into #{} (state/substates ancestor))
                                                                 immediate-anc-children)
                                                 [])
-                       states                 (distinct (concat (add-descendants (transition/target-state t))
-                                                                (->> (effective-target-states t)
-                                                                     (mapcat #(add-ancestors % ancestor)))
+                       states                 (distinct (concat (add-descendants (transition/target-state t) ctx)
+                                                                (->> (effective-target-states t ctx)
+                                                                     (mapcat #(add-ancestors % ancestor ctx)))
                                                                 ; this is different than scxml, we need to visit other children
                                                                 ; from transition domain, as they are exited in trasitions-exit-set
                                                                 (->> other-children
-                                                                     (mapcat #(add-descendants %)))))]
+                                                                     (mapcat #(add-descendants % ctx)))))]
                    states)))
        (distinct)))
 
-(defn current-configuration [ctx]
-  (get-in ctx [:configuration]))
+
 
 (defn update-configuration [ctx f & args]
   (-> (apply update-in ctx [:configuration] f args)
@@ -189,11 +190,12 @@
           executions))
 
 (defn exit-transitions-states [ctx enabled-transitions]
-  (let [states-to-exit  (transitions-exit-set (current-configuration ctx) enabled-transitions)
+  (let [states-to-exit  (transitions-exit-set ctx enabled-transitions)
         exit-executions (->> states-to-exit
                              (sort-by state/entry-order)
                              (mapcat state/on-exit))]
     (-> ctx
+        (ctx/save-history states-to-exit)
         (update-configuration clojure.set/difference (into #{} states-to-exit))
         (invoke-executions exit-executions))))
 
@@ -208,7 +210,7 @@
                ctx)))
 
 (defn enter-transition-states [ctx enabled-transitions]
-  (->> (transitions-entry-set enabled-transitions)
+  (->> (transitions-entry-set ctx enabled-transitions)
        (enter-states ctx)))
 
 (defn execute-transitions [ctx enabled-transitions]
@@ -256,7 +258,7 @@
   (into [] (xf-conflicting-transitions configuration) transitions))
 
 (defn select-transitions [ctx select-transitions]
-  (->> (current-configuration ctx)
+  (->> (ctx/current-configuration ctx)
        (filter state/atomic?)
        (sort-by state/entry-order)
        (map (fn [atomic-state]
@@ -265,7 +267,7 @@
                    first)))
        (remove nil?)
        distinct
-       (remove-conflicting-transitions (full-configuration (current-configuration ctx)))))
+       (remove-conflicting-transitions (ctx/full-configuration ctx))))
 
 (defn- run [ctx]
   (loop [ctx (ctx/pop-event ctx)
@@ -288,21 +290,24 @@
                 (let [ctx (run ctx)]
                   (recur ctx))
                 ctx))]
-    (-> ctx
-        (select-keys [:fx :configuration])
-        (update :configuration #(->> (map :id %)
-                                     (into #{}))))))
+    {:fx            (:fx ctx)
+     :configuration {:configuration (->> (:configuration ctx)
+                                         (map :id)
+                                         (into #{}))
+                     :history       (:history ctx)}}))
+
 
 (defn initialize [statechart fx]
   (let [states (->> (state/initialize-statechart statechart)
-                    (mapcat #(cons % (proper-ancestors % nil)))
+                    (mapcat #(cons % (state/proper-ancestors % nil)))
                     (distinct)
-                    )]
-    (->
-      (enter-states (ctx/make-ctx statechart #{} fx) states)
-      (select-keys [:fx :configuration])
-      (update :configuration #(->> (map :id %)
-                                   (into #{}))))))
+                    )
+        ctx    (enter-states (ctx/make-ctx statechart #{} fx) states)]
+    {:fx            (:fx ctx)
+     :configuration {:configuration (->> (:configuration ctx)
+                                         (map :id)
+                                         (into #{}))
+                     :history       (:history ctx)}}))
 
 (comment
   (def statechart

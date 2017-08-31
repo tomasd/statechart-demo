@@ -60,6 +60,13 @@
   (:enter statechart))
 (defn get-state [statechart id]
   (get (:state-index statechart) id))
+(defn deep-history? [statechart]
+  (= (:history statechart) :deep))
+(defn shallow-history? [statechart]
+  (= (:history statechart) :shallow))
+(defn history? [statechart]
+  (or (deep-history? statechart)
+      (shallow-history? statechart)))
 
 (defn compound? [state]
   (= (state-type state) :xor))
@@ -95,3 +102,26 @@
               (take-while #(apply = %))
               (map first))
          parent-id))))
+
+(defn child-id? [child-id parent-id]
+  (and
+    (= (count parent-id) (dec (count child-id)))
+    (= parent-id (butlast child-id))))
+
+(defn child? [child parent]
+  (let [parent-id (when parent
+                    (state-id parent))
+        child-id  (state-id child)]
+    (and
+      (= (count parent-id) (dec (count child-id)))
+      (= parent-id (butlast child-id)))))
+
+(defn proper-ancestors [state1 cap-state]
+  (let [state1-id (state-id state1)
+        state2-id (when (some? cap-state)
+                    (state-id cap-state))]
+    (->> (range 0 (count state1-id))
+         (map #(subvec state1-id 0 %))
+         (reverse)
+         (take-while #(not= % state2-id))
+         (map #(get-state state1 %)))))

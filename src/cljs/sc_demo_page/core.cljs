@@ -19,6 +19,6 @@
 
 (defn ^:export init []
   (re-frame/dispatch-sync [:initialize-db])
-  (js/setTimeout #(re-frame/dispatch [:goto-page :page/home]) 300)
+  (js/setTimeout #(re-frame/dispatch [:goto-page :page/betting]) 300)
   (dev-setup)
   (mount-root))
