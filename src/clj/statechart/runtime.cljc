@@ -44,7 +44,8 @@
 
       (and
         (transition/internal? t)
-        (state/compound? source)
+        #_(state/compound? source)
+        (not (state/atomic? source))
         (->> states
              (every? #(state/descendant? % source))))
       source
@@ -103,13 +104,13 @@
                                                 (set/difference (into #{} (state/substates ancestor))
                                                                 immediate-anc-children)
                                                 [])
-                       states                 (distinct (concat (add-descendants (transition/target-state t) ctx)
-                                                                (->> (effective-target-states t ctx)
-                                                                     (mapcat #(add-ancestors % ancestor ctx)))
-                                                                ; this is different than scxml, we need to visit other children
-                                                                ; from transition domain, as they are exited in trasitions-exit-set
-                                                                (->> other-children
-                                                                     (mapcat #(add-descendants % ctx)))))]
+                       states                 (concat (add-descendants (transition/target-state t) ctx)
+                                                      (->> (effective-target-states t ctx)
+                                                           (mapcat #(add-ancestors % ancestor ctx)))
+                                                      ; this is different than scxml, we need to visit other children
+                                                      ; from transition domain, as they are exited in trasitions-exit-set
+                                                      (->> other-children
+                                                           (mapcat #(add-descendants % ctx))))]
                    states)))
        (distinct)))
 
@@ -206,7 +207,8 @@
                    first)))
        (remove nil?)
        distinct
-       (remove-conflicting-transitions ctx)))
+       (remove-conflicting-transitions ctx)
+       ))
 
 (defn eventless-transitions [ctx]
   (select-transitions ctx select-eventless-transitions))

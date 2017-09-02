@@ -90,9 +90,13 @@
    :states      {:first-name (field)
                  :last-name  (field)
                  :email      (field)}
-   :transitions [(goto-substate' :focus :first-name [:page :betting :page :page/home :form :first-name :active])
-                 (goto-substate' :focus :last-name [:page :betting :page :page/home :form :last-name :active])
-                 (goto-substate' :focus :email [:page :betting :page :page/home :form :email :active])]})
+   :transitions [#_(goto-substate' :focus :first-name [:page :betting :page :page/home :form :first-name :active])
+                 {:event :focus
+                  :internal true
+                  :target [:page :betting :page :page/home :form :first-name :active]}
+                 #_(goto-substate' :focus :last-name [:page :betting :page :page/home :form :last-name :active])
+                 #_(goto-substate' :focus :email [:page :betting :page :page/home :form :email :active])
+                 ]})
 
 (def home-page
   {:type   :and
