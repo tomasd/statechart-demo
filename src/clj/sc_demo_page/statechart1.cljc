@@ -226,7 +226,7 @@
 
 
 
-(defn xf-conflicting-transitions [configuration]
+(defn xf-conflicting-transitions [ctx]
   (fn [xf]
     (let [filtered-transitions (volatile! #{})]
       (fn
@@ -241,9 +241,9 @@
                                             transitions-to-remove #{}]
                                        (if-not (empty? filtered-transitions)
                                          (let [t2 (first filtered-transitions)]
-                                           (if-not (empty? (clojure.set/intersection (into #{} (transitions-exit-set configuration [t1]))
-                                                                                     (into #{} (transitions-exit-set configuration [t2]))))
-                                             (if (state/descendant? (:source t1) (:source t2))
+                                           (if-not (empty? (clojure.set/intersection (into #{} (transitions-exit-set ctx [t1]))
+                                                                                     (into #{} (transitions-exit-set ctx [t2]))))
+                                             (if (state/descendant? (transition/source-state t1) (transition/source-state t2))
                                                (recur (rest filtered-transitions)
                                                       (conj transitions-to-remove t2))
                                                :preempted)))
@@ -254,8 +254,8 @@
                                                (conj t1))))
            acc))))))
 
-(defn remove-conflicting-transitions [configuration transitions]
-  (into [] (xf-conflicting-transitions configuration) transitions))
+(defn remove-conflicting-transitions [ctx transitions]
+  (into [] (xf-conflicting-transitions ctx) transitions))
 
 (defn select-transitions [ctx select-transitions]
   (->> (ctx/current-configuration ctx)
@@ -267,12 +267,17 @@
                    first)))
        (remove nil?)
        distinct
-       (remove-conflicting-transitions (ctx/full-configuration ctx))))
+       (remove-conflicting-transitions ctx)))
+
+(defn eventless-transitions [ctx]
+  (select-transitions ctx select-eventless-transitions))
+(defn event-transitions [ctx]
+  (select-transitions ctx #(select-event-transitions % (ctx/current-event-id ctx))))
 
 (defn- run [ctx]
   (loop [ctx (ctx/pop-event ctx)
          i   10]
-    (let [enabled-transitions (select-transitions ctx select-eventless-transitions)]
+    (let [enabled-transitions (eventless-transitions ctx)]
       (cond
         (zero? i)
         (do (prn "exit") ctx)
@@ -282,19 +287,23 @@
                (dec i))
 
         :else
-        (let [value (select-transitions ctx #(select-event-transitions % (ctx/current-event-id ctx)))]
+        (let [value (event-transitions ctx)]
           (microstep ctx value))))))
+
+(defn- make-result [ctx]
+  {:fx            (:fx ctx)
+   :configuration {:configuration (->> (ctx/full-configuration ctx)
+                                       (sort-by state/entry-order)
+                                       (map :id)
+                                       (into []))
+                   :history       (:history ctx)}})
 (defn process-event [statechart configuration fx event]
   (let [ctx (loop [ctx (ctx/make-ctx statechart configuration fx event)]
               (if (seq (:internal-queue ctx))
                 (let [ctx (run ctx)]
                   (recur ctx))
                 ctx))]
-    {:fx            (:fx ctx)
-     :configuration {:configuration (->> (:configuration ctx)
-                                         (map :id)
-                                         (into #{}))
-                     :history       (:history ctx)}}))
+    (make-result ctx)))
 
 
 (defn initialize [statechart fx]
@@ -303,11 +312,7 @@
                     (distinct)
                     )
         ctx    (enter-states (ctx/make-ctx statechart #{} fx) states)]
-    {:fx            (:fx ctx)
-     :configuration {:configuration (->> (:configuration ctx)
-                                         (map :id)
-                                         (into #{}))
-                     :history       (:history ctx)}}))
+    (make-result ctx)))
 
 (comment
   (def statechart
