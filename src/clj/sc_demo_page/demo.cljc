@@ -223,10 +223,10 @@
                                                         }}}}}}))
 
 (defn initialize []
-  (let [{:keys [fx configuration] :as x} (statechart/initialize idx {:db {}})]
+  (let [{:keys [fx configuration] :as x} (statechart/initialize {:db {}} idx)]
     (assoc-in fx [:db :configuration] configuration)))
 (defn process-event [ctx event]
   (let [configuration (get-in ctx [:db :configuration])
-        {:keys [fx configuration] :as x} (statechart/process-event idx event {:configuration configuration
-                                                                              :fx            (select-keys ctx [:db])})]
+        {:keys [fx configuration] :as x} (statechart/process-event {:configuration configuration
+                                                                    :fx            (select-keys ctx [:db])} idx event)]
     (assoc-in fx [:db :configuration] configuration)))

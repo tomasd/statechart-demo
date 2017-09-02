@@ -17,17 +17,18 @@
         (assoc :current-event event)
         (update :internal-queue pop))))
 
-(defn make-ctx
-  ([statechart {:keys [configuration history]} fx]
-   {:configuration  (->> (or configuration #{})
-                         (map #(state/get-state statechart %))
-                         (filter state/atomic?)
-                         (into #{}))
-    :internal-queue (queue)
-    :fx             fx
-    :history        (or history {})})
-  ([statechart configuration fx event]
-   (-> (make-ctx statechart configuration fx)
+(defn init-ctx
+  ([ctx statechart]
+   (let [{{:keys [configuration history]} :configuration} ctx]
+     (-> ctx
+         (assoc :internal-queue (queue))
+         (assoc :configuration (->> (or configuration #{})
+                                    (map #(state/get-state statechart %))
+                                    (filter state/atomic?)
+                                    (into #{})))
+         (assoc :history (or history {})))))
+  ([ctx statechart event]
+   (-> (init-ctx ctx statechart)
        (update :internal-queue conj event))))
 
 (defn current-configuration [ctx]
