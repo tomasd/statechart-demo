@@ -1,5 +1,5 @@
-(ns sc-demo-page.context
-  (:require [sc-demo-page.state :as state]))
+(ns statechart.context
+  (:require [statechart.state :as state]))
 
 (defn queue []
   #?(:clj  clojure.lang.PersistentQueue/EMPTY

@@ -1,7 +1,7 @@
 (ns sc-demo-page.demo
-  (:require [sc-demo-page.statechart1 :as sc]
-            [sc-demo-page.context :as ctx]
-            [sc-demo-page.state :as state]))
+  (:require [statechart.core :as statechart]
+            [statechart.context :as ctx]
+            [statechart.state :as state]))
 
 (defn event-pred? [predicate]
   (fn [ctx]
@@ -16,6 +16,13 @@
    :internal  (contains? (into #{} opts) :internal)
    :condition (event-pred? (fn [[_ arg]]
                              (= arg target)))})
+
+(defn goto-substate' [event arg target & opts]
+  {:event     event
+   :target    target
+   :internal  (contains? (into #{} opts) :internal)
+   :condition (event-pred? (fn [[_ arg']]
+                             (= arg arg')))})
 
 (defn assoc-page-layout [page-name layout]
   (fn [ctx]
@@ -72,50 +79,65 @@
   (fn [ctx]
     (update-db ctx dissoc key)))
 
+(defn field []
+  {:type   :xor
+   :init   :static
+   :states {:static {}
+            :active {}}})
+
+(def my-form
+  {:type        :and
+   :states      {:first-name (field)
+                 :last-name  (field)
+                 :email      (field)}
+   :transitions [(goto-substate' :focus :first-name [:page :betting :page :page/home :form :first-name :active])
+                 (goto-substate' :focus :last-name [:page :betting :page :page/home :form :last-name :active])
+                 (goto-substate' :focus :email [:page :betting :page :page/home :form :email :active])]})
 
 (def home-page
-  {:type    :and
-   :enter   [(ctx-log "Entering home page")
-             (assoc-page-layout :page/home :layout/column
-                                )]
-   :history :deep
-   :exit    [(dissoc-db-value :home-page)
-             (ctx-log "Leaving home page")]
-   :states  {:tabs {:init        :top-5
-                    :type        :xor
-                    :states      {:top-5      {:enter [(assoc-db-value [:home-page :current-tab] :top-5)
-                                                       (assoc-filter [:home-page] {:boxId    ["top5"]
-                                                                                   :prematch true})
-                                                       (reset-boxes [:home-page])]}
-                                  :10-naj     {:enter [(assoc-db-value [:home-page :current-tab] :10-naj)
-                                                       (assoc-filter [:home-page] {:boxId    ["naj10"]
-                                                                                   :prematch true})
-                                                       (reset-boxes [:home-page])]}
-                                  :superkurzy {:enter [(assoc-db-value [:home-page :current-tab] :superkurzy)
-                                                       (assoc-filter [:home-page] {:boxId    ["superoffer" "superchance" "duel"]
-                                                                                   :prematch true})
-                                                       (reset-boxes [:home-page])]}
-                                  :top-ponuka {:enter [(assoc-db-value [:home-page :current-tab] :top-ponuka)
-                                                       (assoc-filter [:home-page] {:filter   ["topponuka"]
-                                                                                   :prematch true})
-                                                       (reset-boxes [:home-page])]}}
-                    :transitions [(goto-substate :set-tab :top-5 :internal)
-                                  (goto-substate :set-tab :10-naj :internal)
-                                  (goto-substate :set-tab :superkurzy :internal)
-                                  (goto-substate :set-tab :top-ponuka :internal)]}}})
+  {:type   :and
+   :enter  [(ctx-log "Entering home page")
+            (assoc-page-layout :page/home :layout/column
+                               )]
+   :exit   [(dissoc-db-value :home-page)
+            (ctx-log "Leaving home page")]
+   :states {:form my-form
+            :tabs {:init        :top-5
+                   :type        :xor
+                   :history     :shallow
+                   :states      {:top-5      {:enter [(assoc-db-value [:home-page :current-tab] :top-5)
+                                                      (assoc-filter [:home-page] {:boxId    ["top5"]
+                                                                                  :prematch true})
+                                                      (reset-boxes [:home-page])]}
+                                 :10-naj     {:enter [(assoc-db-value [:home-page :current-tab] :10-naj)
+                                                      (assoc-filter [:home-page] {:boxId    ["naj10"]
+                                                                                  :prematch true})
+                                                      (reset-boxes [:home-page])]}
+                                 :superkurzy {:enter [(assoc-db-value [:home-page :current-tab] :superkurzy)
+                                                      (assoc-filter [:home-page] {:boxId    ["superoffer" "superchance" "duel"]
+                                                                                  :prematch true})
+                                                      (reset-boxes [:home-page])]}
+                                 :top-ponuka {:enter [(assoc-db-value [:home-page :current-tab] :top-ponuka)
+                                                      (assoc-filter [:home-page] {:filter   ["topponuka"]
+                                                                                  :prematch true})
+                                                      (reset-boxes [:home-page])]}}
+                   :transitions [(goto-substate :set-tab :top-5 :internal)
+                                 (goto-substate :set-tab :10-naj :internal)
+                                 (goto-substate :set-tab :superkurzy :internal)
+                                 (goto-substate :set-tab :top-ponuka :internal)]}}})
 
 (defn filter-flag-sc [{:keys [event flag init]}]
-  {:type   :xor
-   :init   init
+  {:type    :xor
+   :init    init
    :history :shallow
-   :states {:on  {:enter       [(update-filter [:betting-page] assoc flag true)
-                                (reset-boxes [:betting-page])]
-                  :transitions [{:event  event
-                                 :target [:page :betting :page :page/betting flag :off]}]}
-            :off {:enter       [(update-filter [:betting-page] assoc flag false)
-                                (reset-boxes [:betting-page])]
-                  :transitions [{:event  event
-                                 :target [:page :betting :page :page/betting flag :on]}]}}})
+   :states  {:on  {:enter       [(update-filter [:betting-page] assoc flag true)
+                                 (reset-boxes [:betting-page])]
+                   :transitions [{:event  event
+                                  :target [:page :betting :page :page/betting flag :off]}]}
+             :off {:enter       [(update-filter [:betting-page] assoc flag false)
+                                 (reset-boxes [:betting-page])]
+                   :transitions [{:event  event
+                                  :target [:page :betting :page :page/betting flag :on]}]}}})
 
 (def betting-page
   {:type        :and
@@ -149,7 +171,7 @@
 (def mymatches-page
   {:enter [(assoc-page-layout :page/my-matches :layout/column)]})
 
-(def idx (sc/make-statechart
+(def idx (statechart/make
            {:type   :and
             :states {:push {:enter [(ctx-log "Starting push")]
                             :exit  [(ctx-log "Stopping push")]}
@@ -200,7 +222,11 @@
                                                         :menu {:enter [(load-menu [:betting :menu])]}
                                                         }}}}}}))
 
+(defn initialize []
+  (let [{:keys [fx configuration] :as x} (statechart/initialize idx {:db {}})]
+    (assoc-in fx [:db :configuration] configuration)))
 (defn process-event [ctx event]
   (let [configuration (get-in ctx [:db :configuration])
-        {:keys [fx configuration] :as x} (sc/process-event idx configuration (select-keys ctx [:db]) event)]
+        {:keys [fx configuration] :as x} (statechart/process-event idx event {:configuration configuration
+                                                                              :fx            (select-keys ctx [:db])})]
     (assoc-in fx [:db :configuration] configuration)))

@@ -1,4 +1,4 @@
-(ns sc-demo-page.state)
+(ns statechart.state)
 
 (defprotocol IStatechartIndex
   (set-index [this idx]))

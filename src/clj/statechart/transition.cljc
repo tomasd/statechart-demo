@@ -1,6 +1,6 @@
-(ns sc-demo-page.transition
-  (:require [sc-demo-page.state :as state]
-            [sc-demo-page.context :as ctx])
+(ns statechart.transition
+  (:require [statechart.state :as state]
+            [statechart.context :as ctx])
   )
 
 

@@ -3,53 +3,48 @@
             [sc-demo-page.db :as db]
             [reagent.ratom :refer-macros [reaction]]
             [reagent.core :as reagent]
-            [sc-demo-page.statechart1 :as sc]
+            [statechart.core :as statechart]
             [ajax.core :refer [GET POST]]
             [clojure.string :as str]
             [sc-demo-page.view-utils :as wu]
-            [sc-demo-page.context :as ctx]
             [sc-demo-page.demo :as demo]))
 
-(defn process-event [ctx event]
-  (let [configuration (get-in ctx [:db :configuration])
-        {:keys [fx configuration] :as x} (sc/process-event demo/idx configuration (select-keys ctx [:db]) event)]
-    (assoc-in fx [:db :configuration] configuration)))
+
 
 (re-frame/reg-event-fx :initialize-db
   [re-frame/debug]
   (fn [_ _]
-    (let [{:keys [fx configuration] :as x} (sc/initialize demo/idx {:db db/default-db})]
-      (assoc-in fx [:db :configuration] configuration))))
+    (demo/initialize)))
 
 (re-frame/reg-event-fx :goto-page
   [re-frame/debug]
   (fn [ctx event]
-    (process-event ctx event)))
+    (demo/process-event ctx event)))
 
 (re-frame/reg-event-fx :set-tab
   [re-frame/debug]
   (fn [ctx event]
-    (process-event ctx event)))
+    (demo/process-event ctx event)))
 
 (re-frame/reg-event-fx :set-menu
   [re-frame/debug]
   (fn [ctx event]
-    (process-event ctx event)))
+    (demo/process-event ctx event)))
 
 (re-frame/reg-event-fx :toggle-prematch
   [re-frame/debug]
   (fn [ctx event]
-    (process-event ctx event)))
+    (demo/process-event ctx event)))
 
 (re-frame/reg-event-fx :toggle-live
   [re-frame/debug]
   (fn [ctx event]
-    (process-event ctx event)))
+    (demo/process-event ctx event)))
 
 (re-frame/reg-event-fx :toggle-results
   [re-frame/debug]
   (fn [ctx event]
-    (process-event ctx event)))
+    (demo/process-event ctx event)))
 
 
 
@@ -127,8 +122,8 @@
 
 (re-frame/reg-event-fx :login
   (fn [ctx event]
-    (process-event ctx event)))
+    (demo/process-event ctx event)))
 
 (re-frame/reg-event-fx :logout
   (fn [ctx event]
-    (process-event ctx event)))
+    (demo/process-event ctx event)))
