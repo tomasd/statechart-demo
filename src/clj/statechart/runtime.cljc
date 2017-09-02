@@ -66,6 +66,60 @@
          distinct)))
 
 (declare add-descendants)
+(declare add-descendants')
+
+
+(defn add-ancestors' [state ancestor ctx acc]
+  (if (contains? acc state)
+    acc
+    (->> (state/proper-ancestors state ancestor)
+         (reduce (fn [acc ancestor]
+                   (if (state/component? ancestor)
+                     (->> (state/substates ancestor)
+                          (reduce
+                            (fn [acc sub-state]
+                              (->> acc
+                                   (add-descendants' sub-state ctx)))
+                            (conj acc ancestor)))
+                     (conj acc ancestor)))
+                 (conj acc state)))))
+
+(defn add-descendants' [state ctx acc]
+  (if (contains? acc state)
+    acc
+    (if (state/history? state)
+      (->> (ctx/state-history state ctx)
+           (reduce (fn [acc state]
+                     (->> (state/initial-states state)
+                          (reduce
+                            (fn [acc init-state]
+                              (->> acc
+                                   (add-descendants' init-state ctx)
+                                   (add-ancestors' init-state state ctx)))
+                            (conj acc state))))
+                   acc))
+
+      (cond
+        (state/compound? state)
+        (->> (state/initial-states state)
+             (reduce
+               (fn [acc init-state]
+                 (->> acc
+                      (add-descendants' init-state ctx)
+                      (add-ancestors' init-state state ctx)))
+               (conj acc state)))
+
+        (state/component? state)
+        (->> (state/initial-states state)
+             (reduce
+               (fn [acc init-state]
+                 (->> acc
+                      (add-descendants' init-state ctx)))
+               (conj acc state)))
+
+        :else
+        (conj acc state)))))
+
 (defn add-ancestors [state ancestor ctx]
   (cons state (->> (state/proper-ancestors state ancestor)
                    (mapcat (fn [anc]
@@ -104,13 +158,24 @@
                                                 (set/difference (into #{} (state/substates ancestor))
                                                                 immediate-anc-children)
                                                 [])
-                       states                 (concat (add-descendants (transition/target-state t) ctx)
-                                                      (->> (effective-target-states t ctx)
-                                                           (mapcat #(add-ancestors % ancestor ctx)))
-                                                      ; this is different than scxml, we need to visit other children
-                                                      ; from transition domain, as they are exited in trasitions-exit-set
-                                                      (->> other-children
-                                                           (mapcat #(add-descendants % ctx))))]
+                       #_states                 #_(concat (add-descendants (transition/target-state t) ctx)
+                                                          (->> (effective-target-states t ctx)
+                                                               (mapcat #(add-ancestors % ancestor ctx)))
+                                                          ; this is different than scxml, we need to visit other children
+                                                          ; from transition domain, as they are exited in trasitions-exit-set
+                                                          (->> other-children
+                                                               (mapcat #(add-descendants % ctx))))
+                       acc                    #{}
+                       acc                    (add-descendants' (transition/target-state t) ctx acc)
+                       acc                    (->> (effective-target-states t ctx)
+                                                   (reduce (fn [acc s]
+                                                             (add-ancestors' s ancestor ctx acc))
+                                                           acc))
+                       acc                    (->> other-children
+                                                   (reduce (fn [acc s]
+                                                             (add-descendants' s ctx acc))
+                                                           acc))
+                       states                 acc]
                    states)))
        (distinct)))
 
