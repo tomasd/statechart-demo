@@ -196,14 +196,11 @@
                                                                                             ctx))]
                                                                               :target  :page/betting}
                                                                              {:event   :toggle-prematch
-                                                                              :execute [(assoc-filter [:betting-page] {:prematch true})]
-                                                                              :target  :page/betting}
+                                                                              :target  [:page :betting :page :page/betting :prematch :on]}
                                                                              {:event   :toggle-live
-                                                                              :execute [(assoc-filter [:betting-page] {:live true})]
-                                                                              :target  :page/betting}
+                                                                              :target  [:page :betting :page :page/betting :live :on]}
                                                                              {:event   :toggle-results
-                                                                              :execute [(assoc-filter [:betting-page] {:results true})]
-                                                                              :target  :page/betting}]}
+                                                                              :target  [:page :betting :page :page/betting :results :on]}]}
                                                         :menu {:enter [(load-menu [:betting :menu])]}
                                                         }}}}}}))
 

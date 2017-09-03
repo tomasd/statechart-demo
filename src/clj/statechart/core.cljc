@@ -12,6 +12,7 @@
 (defn- make-result [ctx]
   {:fx            (:fx ctx)
    :configuration {:configuration (->> (ctx/full-configuration ctx)
+                                       (filter state/atomic?)
                                        (sort-by state/entry-order)
                                        (map :id)
                                        (into []))

@@ -65,87 +65,70 @@
                           (filter #(state/descendant? % domain))))))
          distinct)))
 
-(declare add-descendants)
 (declare add-descendants')
+(declare add-ancestors')
 
 
 (defn add-ancestors' [state ancestor ctx acc]
-  (if (contains? acc state)
-    acc
-    (->> (state/proper-ancestors state ancestor)
-         (reduce (fn [acc ancestor]
+  (->> (state/proper-ancestors state ancestor)
+       (reduce (fn [acc ancestor]
+                 (if (contains? acc ancestor)
+                   acc
                    (if (state/component? ancestor)
                      (->> (state/substates ancestor)
                           (reduce
                             (fn [acc sub-state]
-                              (->> acc
-                                   (add-descendants' sub-state ctx)))
+                              (if (contains? acc sub-state)
+                                acc
+                                (->> acc
+                                     (add-descendants' sub-state ctx))))
                             (conj acc ancestor)))
-                     (conj acc ancestor)))
-                 (conj acc state)))))
+                     (conj acc ancestor))))
+               acc)))
+
+
 
 (defn add-descendants' [state ctx acc]
-  (if (contains? acc state)
-    acc
-    (if (state/history? state)
-      (->> (ctx/state-history state ctx)
-           (reduce (fn [acc state]
-                     (->> (state/initial-states state)
-                          (reduce
-                            (fn [acc init-state]
+  (if (state/history? state)
+    (->> (ctx/state-history state ctx)
+         (reduce (fn [acc state]
+                   (->> (state/initial-states state)
+                        (reduce
+                          (fn [acc init-state]
+                            (if (contains? acc init-state)
+                              acc
                               (->> acc
                                    (add-descendants' init-state ctx)
-                                   (add-ancestors' init-state state ctx)))
-                            (conj acc state))))
-                   acc))
+                                   (add-ancestors' init-state state ctx))))
+                          (conj acc state))))
+                 (conj acc state)
+                 ))
 
-      (cond
-        (state/compound? state)
-        (->> (state/initial-states state)
-             (reduce
-               (fn [acc init-state]
+    (cond
+      (state/compound? state)
+      (->> (state/initial-states state)
+           (reduce
+             (fn [acc init-state]
+               (if (contains? acc init-state)
+                 acc
                  (->> acc
                       (add-descendants' init-state ctx)
-                      (add-ancestors' init-state state ctx)))
-               (conj acc state)))
+                      (add-ancestors' init-state state ctx))))
+             (conj acc state)))
 
-        (state/component? state)
-        (->> (state/initial-states state)
-             (reduce
-               (fn [acc init-state]
+      (state/component? state)
+      (->> (state/initial-states state)
+           (reduce
+             (fn [acc init-state]
+               (if (contains? acc init-state)
+                 acc
                  (->> acc
-                      (add-descendants' init-state ctx)))
-               (conj acc state)))
+                      (add-descendants' init-state ctx))))
+             (conj acc state)))
 
-        :else
-        (conj acc state)))))
+      :else
+      (conj acc state))))
 
-(defn add-ancestors [state ancestor ctx]
-  (cons state (->> (state/proper-ancestors state ancestor)
-                   (mapcat (fn [anc]
-                             (cond-> [anc]
-                               (state/component? anc)
-                               (into (->> (state/substates anc)
-                                          (mapcat #(add-descendants % ctx))))))))))
-(defn add-descendants [state ctx]
-  (cons state
-        (if (state/history? state)
-          (->> (ctx/state-history state ctx)
-               (mapcat (fn [state]
-                         (cons state (-> (concat
-                                           (mapcat #(add-descendants % ctx) (state/initial-states state))
-                                           (mapcat #(add-ancestors % state ctx) (state/initial-states state)))
-                                         distinct)))))
-          (cond
-            (state/compound? state)
-            (-> (concat
-                  (mapcat #(add-descendants % ctx) (state/initial-states state))
-                  (mapcat #(add-ancestors % state ctx) (state/initial-states state)))
-                distinct)
-
-            (state/component? state)
-            (-> (mapcat #(add-descendants % ctx) (state/substates state))
-                distinct)))))
 
 (defn transitions-entry-set [ctx transitions]
   (->> transitions
@@ -158,13 +141,7 @@
                                                 (set/difference (into #{} (state/substates ancestor))
                                                                 immediate-anc-children)
                                                 [])
-                       #_states                 #_(concat (add-descendants (transition/target-state t) ctx)
-                                                          (->> (effective-target-states t ctx)
-                                                               (mapcat #(add-ancestors % ancestor ctx)))
-                                                          ; this is different than scxml, we need to visit other children
-                                                          ; from transition domain, as they are exited in trasitions-exit-set
-                                                          (->> other-children
-                                                               (mapcat #(add-descendants % ctx))))
+
                        acc                    #{}
                        acc                    (add-descendants' (transition/target-state t) ctx acc)
                        acc                    (->> (effective-target-states t ctx)

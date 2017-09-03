@@ -7,20 +7,3 @@
             [statechart.runtime :as runtime]))
 
 
-(let [ctx   (-> (sc/initialize {} demo/idx)
-                (sc/process-event demo/idx [:goto-page :page/home])
-                (sc/process-event demo/idx [:focus :first-name])
-
-
-                ;(sc/process-event demo/idx [:toggle-live])
-                ;(sc/process-event demo/idx [:login])
-                )
-      ]
-
-  ctx
-
-
-  ;(first transitions)
-  )
-
-
