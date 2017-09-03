@@ -79,25 +79,6 @@
   (fn [ctx]
     (update-db ctx dissoc key)))
 
-(defn field []
-  {:type   :xor
-   :init   :static
-   :states {:static {}
-            :active {}}})
-
-(def my-form
-  {:type        :and
-   :states      {:first-name (field)
-                 :last-name  (field)
-                 :email      (field)}
-   :transitions [#_(goto-substate' :focus :first-name [:page :betting :page :page/home :form :first-name :active])
-                 {:event :focus
-                  :internal true
-                  :target [:page :betting :page :page/home :form :first-name :active]}
-                 #_(goto-substate' :focus :last-name [:page :betting :page :page/home :form :last-name :active])
-                 #_(goto-substate' :focus :email [:page :betting :page :page/home :form :email :active])
-                 ]})
-
 (def home-page
   {:type   :and
    :enter  [(ctx-log "Entering home page")
@@ -105,7 +86,7 @@
                                )]
    :exit   [(dissoc-db-value :home-page)
             (ctx-log "Leaving home page")]
-   :states {:form my-form
+   :states {
             :tabs {:init        :top-5
                    :type        :xor
                    :history     :shallow
