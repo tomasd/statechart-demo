@@ -202,7 +202,8 @@
                                                                              {:event   :toggle-results
                                                                               :target  [:page :betting :page :page/betting :results :on]}]}
                                                         :menu {:enter [(load-menu [:betting :menu])]}
-                                                        }}}}}}))
+                                                        }}
+                                     }}}}))
 
 (defn initialize []
   (let [{:keys [fx configuration] :as x} (statechart/initialize {:db {}} idx)]

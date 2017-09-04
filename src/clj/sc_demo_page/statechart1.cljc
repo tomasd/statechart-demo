@@ -1,9 +1,8 @@
 (ns sc-demo-page.statechart1
   (:require [clojure.zip :as zip]
             [clojure.set :as set]
-            [sc-demo-page.state :as state]
-            [sc-demo-page.context :as ctx]
-            [sc-demo-page.transition :as transition]))
+
+            ))
 
 
 

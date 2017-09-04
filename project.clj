@@ -33,8 +33,8 @@
   {:builds
    [{:id           "dev"
      :source-paths ["src/cljs" "src/clj"]
-     :figwheel     {:on-jsload "sc-demo-page.core/mount-root"}
-     :compiler     {:main                 sc-demo-page.core
+     :figwheel     {:on-jsload "nike-sk.core/mount-root"}
+     :compiler     {:main                 nike-sk.core
                     :output-to            "resources/public/js/compiled/app.js"
                     :output-dir           "resources/public/js/compiled/out"
                     :asset-path           "js/compiled/out"
@@ -45,7 +45,7 @@
 
     {:id           "min"
      :source-paths ["src/cljs"]
-     :compiler     {:main            sc-demo-page.core
+     :compiler     {:main            nike-sk.core
                     :output-to       "resources/public/js/compiled/app.js"
                     :optimizations   :advanced
                     :closure-defines {goog.DEBUG false}
