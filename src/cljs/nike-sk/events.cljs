@@ -15,12 +15,12 @@
 
 (defn reg-event [event]
   (re-frame/reg-event-fx event
-    [re-frame/debug]
+    ;[re-frame/debug]
     (fn [ctx event]
       (process-event ctx event))))
 
 (re-frame/reg-event-fx :initialize-db
-  [re-frame/debug]
+  ;[re-frame/debug]
   (fn [_ _]
     (initialize)))
 
@@ -32,6 +32,8 @@
 (reg-event :toggle-results)
 (reg-event :set-menu)
 (reg-event :set-date)
+(reg-event :clear-date)
+(reg-event :clear-menu)
 
 (re-frame/reg-event-db :reset-boxes
   ;[re-frame/debug]

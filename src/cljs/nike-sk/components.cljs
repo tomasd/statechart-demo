@@ -43,11 +43,17 @@
         ^{:key i} [sport-menu-item box-filter item])])])
 
 (defn sport-menu-panel [box-filter]
-  (let [menu (re-frame/subscribe [:menu])]
-    (fn []
-      [:ul
-       (for [[i item] (map-indexed vector (:items @menu))]
-         ^{:key i} [sport-menu-item box-filter item])])))
+  (let [has-menu? (reaction (:menu @box-filter))]
+    [:div
+     [:button.btn.btn-secondary
+      {:type     "button"
+       :disabled (not @has-menu?)
+       :on-click (wu/handle-dispatch [:clear-menu])}
+      "× All"]
+     (let [menu (re-frame/subscribe [:menu])]
+       [:ul
+        (for [[i item] (map-indexed vector (:items @menu))]
+          ^{:key i} [sport-menu-item box-filter item])])]))
 
 (defn top-menu-panel []
   (let [current-page   (re-frame/subscribe [:current-page-name])
@@ -82,41 +88,50 @@
    [page-nav-link :page/my-matches "My matches"]
    ])
 
+(defn day-radio [box-filter day]
+  [:label.btn.btn-secondary [:input {:type      "radio"
+                                     :checked   @(reaction (= (:date @box-filter) day))
+                                     :on-change (wu/handle-dispatch [:set-date day])}] (date-format/unparse custom-formatter day)])
+(defn clear-date [box-filter]
+  (let [has-date? (reaction (some? (:date @box-filter)))]
+    [:button.btn.btn-secondary {:type      "button"
+                                :disabled  (not @has-date?)
+                                :on-click (wu/handle-dispatch [:clear-date])} "× All"]))
+
 (defn omnifilter [box-filter]
-  (let [betting-days (re-frame/subscribe [:betting-days])]
-    (fn [box-filter]
-      [:div.row
-       [:div.col
+  (let [betting-days (re-frame/subscribe [:betting-days])
+        ]
+    [:div.row
+     [:div.col-8
+      [:div.btn-toolbar
+       [:div.btn-group.mr-2
+        [:label.btn.btn-secondary [:input {:type      "checkbox"
+                                           :checked   @(reaction (:prematch @box-filter false))
+                                           :on-change (wu/handle-dispatch [:toggle-prematch])}] " Prematch"]
 
-        [:div.btn-toolbar
-         [:div.btn-group.mr-2
-          [:label.btn.btn-secondary [:input {:type      "checkbox"
-                                             :checked   @(reaction (:prematch @box-filter false))
-                                             :on-change (wu/handle-dispatch [:toggle-prematch])}] " Prematch"]
+        [:label.btn.btn-secondary [:input {:type      "checkbox"
+                                           :checked   @(reaction (:live @box-filter false))
+                                           :on-change (wu/handle-dispatch [:toggle-live])}] " Live"]
 
-          [:label.btn.btn-secondary [:input {:type      "checkbox"
-                                             :checked   @(reaction (:live @box-filter false))
-                                             :on-change (wu/handle-dispatch [:toggle-live])}] " Live"]
+        [:label.btn.btn-secondary [:input {:type      "checkbox"
+                                           :checked   @(reaction (:results @box-filter false))
+                                           :on-change (wu/handle-dispatch [:toggle-results])}] " Results"]]]
+      [:div.btn-group.mr-2 {:style {:max-width      "200px"
+                                    :overflow-y "scroll"}}
+       (for [[i day] (map-indexed vector @betting-days)]
+         ^{:key i}
+         [day-radio box-filter day])]
 
-          [:label.btn.btn-secondary [:input {:type      "checkbox"
-                                             :checked   @(reaction (:results @box-filter false))
-                                             :on-change (wu/handle-dispatch [:toggle-results])}] " Results"]]]
-        [:div.btn-group.mr-2 {:style {:width "200px"
-                                      :overflow-y "scroll"}}
-         (for [[i day] (map-indexed vector @betting-days)]
-           ^{:key i}
-           [:button.btn.btn-secondary
-            {:type     "button"
-             :on-click (wu/handle-dispatch [:set-date day])}
-            (date-format/unparse custom-formatter day)])]]
-
+      [:div.btn-group
+       [clear-date box-filter]]]
 
 
 
 
-       [:div.col
-        [layout-toggle]]
-       ])))
+
+     [:div.col
+      [layout-toggle]]
+     ]))
 
 (defn tab [current-tab tab label cmd]
   [:li.nav-item

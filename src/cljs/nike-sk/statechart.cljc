@@ -62,13 +62,11 @@
   {:type    :xor
    :init    init
    :history :shallow
-   :states  {:on  {:enter       [(ctx-log (str "Enter " section " :on"))
-                                 (update-db assoc-in (into path [:filter section]) true)
+   :states  {:on  {:enter       [(update-db assoc-in (into path [:filter section]) true)
                                  (request-reset-boxes path)]
                    :transitions [{:event  event
                                   :target (path/parent [:off])}]}
-             :off {:enter       [(ctx-log (str "Enter " section " :off"))
-                                 (update-db assoc-in (into path [:filter section]) false)
+             :off {:enter       [(update-db assoc-in (into path [:filter section]) false)
                                  (request-reset-boxes path)]
                    :transitions [{:event  event
                                   :target (path/parent [:on])}]}}})
@@ -85,6 +83,15 @@
                                       :4-col {:enter       [(update-db assoc-in [:page :layout] :layout/column-4)]
                                               :transitions [{:event  :toggle-layout
                                                              :target (path/sibling :3-col)}]}}}
+
+                   :sport-menu {:enter [(ctx-log "Enter sport menu")
+                                        (request-sport-menu [:menu])
+                                        (update-db assoc-in [:betting-days] (vec (for [i (range 0 10)]
+                                                                                   (-> (time/now)
+                                                                                       (time/at-midnight)
+                                                                                       (time/plus (time/days i))))))]}
+
+                   :betslip    {}
                    :content {:type   :and
                              :states {:page       {:type        :xor
                                                    :init        :page/home
@@ -117,9 +124,10 @@
                                                                  :page/betting {:type   :and
                                                                                 :enter  [(ctx-log "Enter :page/betting")
                                                                                          (update-db assoc-in [:page :name] :page/betting)
-                                                                                         (update-db assoc-in [:betting-page :filter] (assoc default-filter
-                                                                                                                                       :prematch true
-                                                                                                                                       :live true))
+                                                                                         (update-db update-in [:betting-page :filter] #(merge default-filter
+                                                                                                                                              {:prematch true
+                                                                                                                                               :live     true}
+                                                                                                                                              %))
                                                                                          (request-reset-boxes [:betting-page])
                                                                                          ]
                                                                                 :states {:filter {:type   :and
@@ -127,41 +135,48 @@
                                                                                                            :live     (boxfilter-section :toggle-live [:betting-page] :live :on)
                                                                                                            :results  (boxfilter-section :toggle-results [:betting-page] :results :off)
                                                                                                            :filter   {:type   :xor
-                                                                                                                      :enter  [(ctx-log "Enter filter ")
-                                                                                                                               (request-reset-boxes [:betting-page])]
+                                                                                                                      :enter  [(request-reset-boxes [:betting-page])]
                                                                                                                       :init   :all
                                                                                                                       :states {:all       {:enter       [(request-reset-boxes [:betting-page])]
-                                                                                                                                           :transitions [{:event  :set-date
-                                                                                                                                                          :target (path/sibling :date)}
+                                                                                                                                           :transitions [{:event   :set-date
+                                                                                                                                                          :execute [(assoc-event-arg [:betting-page :filter :date])]
+                                                                                                                                                          :target  (path/sibling :date)}
                                                                                                                                                          {:event   :set-menu
                                                                                                                                                           :execute [(assoc-event-arg [:betting-page :filter :menu])]
                                                                                                                                                           :target  (path/sibling :menu)}]}
                                                                                                                                :date      {:enter       [(request-reset-boxes [:betting-page])]
-                                                                                                                                           :transitions [{:event  :clear-date
-                                                                                                                                                          :target (path/sibling :all)}
-                                                                                                                                                         {:event  :set-date
-                                                                                                                                                          :target (path/this)}
+                                                                                                                                           :transitions [{:event   :clear-date
+                                                                                                                                                          :execute [(update-db assoc-in [:betting-page :filter :date] nil)]
+                                                                                                                                                          :target  (path/sibling :all)}
+                                                                                                                                                         {:event   :set-date
+                                                                                                                                                          :execute [(assoc-event-arg [:betting-page :filter :date])]
+                                                                                                                                                          :target  (path/this)}
                                                                                                                                                          {:event   :set-menu
                                                                                                                                                           :execute [(assoc-event-arg [:betting-page :filter :menu])]
                                                                                                                                                           :target  (path/sibling :menu-date)}]}
                                                                                                                                :menu      {:enter       [(request-reset-boxes [:betting-page])]
-                                                                                                                                           :transitions [{:event  :set-date
-                                                                                                                                                          :target (path/sibling :menu-date)}
+                                                                                                                                           :transitions [{:event   :set-date
+                                                                                                                                                          :execute [(assoc-event-arg [:betting-page :filter :date])]
+                                                                                                                                                          :target  (path/sibling :menu-date)}
                                                                                                                                                          {:event   :set-menu
                                                                                                                                                           :execute [(assoc-event-arg [:betting-page :filter :menu])]
                                                                                                                                                           :target  (path/this)}
-                                                                                                                                                         {:event  :clear-menu
-                                                                                                                                                          :target (path/sibling :all)}]}
+                                                                                                                                                         {:event   :clear-menu
+                                                                                                                                                          :execute [(update-db assoc-in [:betting-page :filter :menu] nil)]
+                                                                                                                                                          :target  (path/sibling :all)}]}
                                                                                                                                :menu-date {:enter       [(request-reset-boxes [:betting-page])]
-                                                                                                                                           :transitions [{:event  :clear-date
-                                                                                                                                                          :target (path/sibling :menu)}
-                                                                                                                                                         {:event  :set-date
-                                                                                                                                                          :target (path/this)}
+                                                                                                                                           :transitions [{:event   :clear-date
+                                                                                                                                                          :execute [(update-db assoc-in [:betting-page :filter :date] nil)]
+                                                                                                                                                          :target  (path/sibling :menu)}
+                                                                                                                                                         {:event   :set-date
+                                                                                                                                                          :execute [(assoc-event-arg [:betting-page :filter :date])]
+                                                                                                                                                          :target  (path/this)}
                                                                                                                                                          {:event   :set-menu
                                                                                                                                                           :execute [(assoc-event-arg [:betting-page :filter :menu])]
                                                                                                                                                           :target  (path/this)}
-                                                                                                                                                         {:event  :clear-menu
-                                                                                                                                                          :target (path/sibling :date)}]}}}}}}}}
+                                                                                                                                                         {:event   :clear-menu
+                                                                                                                                                          :execute [(update-db assoc-in [:betting-page :filter :menu] nil)]
+                                                                                                                                                          :target  (path/sibling :date)}]}}}}}}}}
                                                    :transitions [(goto-substate :goto-page :page/home)
                                                                  (goto-substate :goto-page :page/betting)
                                                                  {:event  :toggle-prematch
@@ -178,14 +193,7 @@
                                                                  {:event   :set-date
                                                                   :execute [(assoc-event-arg [:betting-page :filter :date])]
                                                                   :target  (path/child [:page/betting :filter :filter :date])}]}
-                                      :sport-menu {:enter [(ctx-log "Enter sport menu")
-                                                           (request-sport-menu [:menu])
-                                                           (update-db assoc-in [:betting-days] (vec (for [i (range -7 10)]
-                                                                                                      (-> (time/now)
-                                                                                                          (time/at-midnight)
-                                                                                                          (time/plus (time/days i))))))]}
-
-                                      :betslip    {}}}}
+                                      }}}
      :transitions [{:event   :request-reset-boxes
                     :execute [(fn [ctx]
                                 (let [[_ path] (ctx/current-event ctx)

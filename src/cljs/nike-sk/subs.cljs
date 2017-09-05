@@ -53,3 +53,4 @@
 (re-frame/reg-sub :betting-days
   (fn [db _]
     (:betting-days db)))
+
