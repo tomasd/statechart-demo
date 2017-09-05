@@ -4,7 +4,8 @@
                  [reagent "0.7.0"]
                  [re-frame "0.10.1"]
                  [secretary "1.2.3"]
-                 [cljs-ajax "0.7.0"]]
+                 [cljs-ajax "0.7.0"]
+                 [com.andrewmcveigh/cljs-time "0.5.0"]]
 
   :plugins [[lein-cljsbuild "1.1.5"]]
 
@@ -39,6 +40,7 @@
                     :output-dir           "resources/public/js/compiled/out"
                     :asset-path           "js/compiled/out"
                     :source-map-timestamp true
+                    :closure-defines      {goog.LOCALE "sk"}
                     :preloads             [devtools.preload]
                     :external-config      {:devtools/config {:features-to-install :all}}
                     }}
@@ -48,9 +50,9 @@
      :compiler     {:main            nike-sk.core
                     :output-to       "resources/public/js/compiled/app.js"
                     :optimizations   :advanced
-                    :closure-defines {goog.DEBUG false}
+                    :closure-defines {goog.DEBUG  false
+                                      goog.LOCALE "sk"}
                     :pretty-print    false}}
-
 
     ]}
 

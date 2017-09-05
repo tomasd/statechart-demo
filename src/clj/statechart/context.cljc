@@ -17,6 +17,10 @@
         (assoc :current-event event)
         (update :internal-queue pop))))
 
+(defn push-event [ctx event]
+  (-> ctx
+      (update :internal-queue conj event)))
+
 (defn init-ctx
   ([ctx statechart]
    (let [{{:keys [configuration history]} :configuration} ctx]

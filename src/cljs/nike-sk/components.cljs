@@ -4,7 +4,24 @@
     [re-frame.core :as re-frame]
     [nike-sk.view-utils :as wu]
     [reagent.core :as reagent]
-    [clojure.string :as str]))
+    [clojure.string :as str]
+    [cljs-time.format :as date-format]))
+
+(def custom-formatter (date-format/formatter "dd.MM."))
+(defn layout-toggle []
+  (let [layout (re-frame/subscribe [:layout])]
+    (fn []
+      [:div.btn-group
+       [:label.btn
+        [:input {:type      "radio"
+                 :checked   (= :layout/column-3 @layout)
+                 :on-change (wu/handle-dispatch [:toggle-layout])}]
+        "3 columns"]
+       [:label.btn
+        [:input {:type      "radio"
+                 :checked   (= :layout/column-4 @layout)
+                 :on-change (wu/handle-dispatch [:toggle-layout])}]
+        "4 columns"]])))
 
 (defn page-nav-link [page label]
   (let [current-page (re-frame/subscribe [:current-page-name])]
@@ -53,31 +70,53 @@
           [:a.nav-link {:href "#"} "Other"]]
          ]
         (if @authenticated?
-          [:div "Authenticated user" [:button {:type "button"
+          [:div "Authenticated user" [:button {:type     "button"
                                                :on-click (wu/handle-dispatch [:logout])} "Logout"]]
-          [:div "Anonymous user" [:button {:type "button"
+          [:div "Anonymous user" [:button {:type     "button"
                                            :on-click (wu/handle-dispatch [:login])} "Login"]])]])))
 
-(defn menu-panel [box-filter]
+(defn menu-panel []
   [:div.nav.flex-column.nav-pills
    [page-nav-link :page/home "Home"]
    [page-nav-link :page/betting "Betting"]
    [page-nav-link :page/my-matches "My matches"]
-   [:hr]
-   [sport-menu-panel box-filter]])
+   ])
 
 (defn omnifilter [box-filter]
-  [:div
-   [:label [:input {:type      "checkbox"
-                    :checked   @(reaction (:prematch @box-filter false))
-                    :on-change (wu/handle-dispatch [:toggle-prematch])}] "Prematch"]
-   [:label [:input {:type      "checkbox"
-                    :checked   @(reaction (:live @box-filter false))
-                    :on-change (wu/handle-dispatch [:toggle-live])}] "Live"]
-   [:label [:input {:type      "checkbox"
-                    :checked   @(reaction (:results @box-filter false))
-                    :on-change (wu/handle-dispatch [:toggle-results])}] "Results"]
-   ])
+  (let [betting-days (re-frame/subscribe [:betting-days])]
+    (fn [box-filter]
+      [:div.row
+       [:div.col
+
+        [:div.btn-toolbar
+         [:div.btn-group.mr-2
+          [:label.btn.btn-secondary [:input {:type      "checkbox"
+                                             :checked   @(reaction (:prematch @box-filter false))
+                                             :on-change (wu/handle-dispatch [:toggle-prematch])}] " Prematch"]
+
+          [:label.btn.btn-secondary [:input {:type      "checkbox"
+                                             :checked   @(reaction (:live @box-filter false))
+                                             :on-change (wu/handle-dispatch [:toggle-live])}] " Live"]
+
+          [:label.btn.btn-secondary [:input {:type      "checkbox"
+                                             :checked   @(reaction (:results @box-filter false))
+                                             :on-change (wu/handle-dispatch [:toggle-results])}] " Results"]]]
+        [:div.btn-group.mr-2 {:style {:width "200px"
+                                      :overflow-y "scroll"}}
+         (for [[i day] (map-indexed vector @betting-days)]
+           ^{:key i}
+           [:button.btn.btn-secondary
+            {:type     "button"
+             :on-click (wu/handle-dispatch [:set-date day])}
+            (date-format/unparse custom-formatter day)])]]
+
+
+
+
+
+       [:div.col
+        [layout-toggle]]
+       ])))
 
 (defn tab [current-tab tab label cmd]
   [:li.nav-item
@@ -118,3 +157,4 @@
        (for [box-id @box-ids]
          [:li {:key box-id}
           [box-panel (reagent/cursor rows [:boxes box-id])]])])))
+

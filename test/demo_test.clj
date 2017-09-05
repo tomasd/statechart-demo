@@ -2,7 +2,10 @@
   (:require [clojure.test :refer :all]
             [statechart.core :as statechart]
             [statechart.context :as ctx]
-            [statechart.runtime :as runtime]))
+            [statechart.runtime :as runtime]
+            [statechart.path :as path]
+            [statechart.state :as state]
+            [statechart.transition :as transition]))
 
 
 (defn event-pred? [predicate]
@@ -90,7 +93,7 @@
                                                        :menu {}
                                                        }}}}}}))
 
-(defn prepare-event [ctx event]
+(defn prepare-event [ctx sc event]
   (-> ctx
       (ctx/init-ctx sc event)
       (ctx/pop-event)))
@@ -148,22 +151,6 @@
           [:page :betting :page :page/home :tabs :top-5]
           [:page :betting :menu]])))
 
-(def ctx (-> (statechart/initialize {} sc)
-             (statechart/process-event sc [:goto-page :page/home])
-             (statechart/process-event sc [:toggle-prematch])
-             (statechart/process-event sc [:toggle-prematch])
-             (statechart/process-event sc [:goto-page :page/home])
-             #_(statechart/process-event sc [:toggle-prematch])
-             (prepare-event [:toggle-prematch])
-
-             #_(get-in [:configuration :configuration])))
-(let [
-      transitions (runtime/event-transitions ctx)]
-  (->> (runtime/transitions-exit-set ctx transitions)
-       (map :id))
-  (->> (runtime/transitions-entry-set ctx transitions)
-       (map :id)))
-
 (deftest test-toggle-prematch
   (is (= (-> (statechart/initialize {} sc)
              (statechart/process-event sc [:goto-page :page/home])
@@ -180,6 +167,7 @@
           [:page :betting :page :page/betting :results :off]
           [:page :betting :menu]]))
   )
+
 
 
 (run-tests)

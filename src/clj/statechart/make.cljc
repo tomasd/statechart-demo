@@ -2,7 +2,8 @@
   (:require [statechart.state :as state]
             [statechart.context :as ctx]
             [statechart.transition :as transition]
-            [clojure.zip :as zip]))
+            [clojure.zip :as zip]
+            [statechart.path :as path]))
 
 
 
@@ -15,11 +16,11 @@
                 (->> transitions
                      (mapv (fn [transition]
                              (let [{:keys [target]} transition]
-                               (cond-> (assoc transition
-                                         :source id
-                                         :state-index state-index)
-                                 (keyword? target)
-                                 (assoc :target (conj id target)))))))))
+                               (-> transition
+                                   (assoc
+                                     :source id
+                                     :state-index state-index)
+                                   (update :target #(path/resolve-path id %)))))))))
 
       true (transition/new-transition))))
 

@@ -132,6 +132,7 @@
 
 (defn transitions-entry-set [ctx transitions]
   (->> transitions
+       (filter transition/targetted-transition?)
        (mapcat (fn [t]
                  (let [ancestor               (transition-domain t ctx)
                        immediate-anc-children (->> (effective-target-states t ctx)
